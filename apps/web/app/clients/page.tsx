@@ -32,6 +32,42 @@ type Client = {
   debts: Debt[];
 };
 
+function onlyDigits(value: string) {
+  return value.replace(/\D/g, "");
+}
+
+function formatUzPhone(value: string) {
+  let digits = onlyDigits(value);
+
+  if (digits.startsWith("998")) {
+    digits = digits.slice(3);
+  }
+
+  if (digits.startsWith("8")) {
+    digits = digits.slice(1);
+  }
+
+  digits = digits.slice(0, 9);
+
+  const operator = digits.slice(0, 2);
+  const first = digits.slice(2, 5);
+  const second = digits.slice(5, 7);
+  const third = digits.slice(7, 9);
+
+  let result = "+998";
+
+  if (operator) result += ` ${operator}`;
+  if (first) result += ` ${first}`;
+  if (second) result += ` ${second}`;
+  if (third) result += ` ${third}`;
+
+  return result;
+}
+
+function normalizePhone(value?: string) {
+  return onlyDigits(value || "");
+}
+
 export default function ClientsPage() {
   const router = useRouter();
 
@@ -82,37 +118,98 @@ export default function ClientsPage() {
 
     await loadClients();
   }
+  async function importExcel(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("companyId", COMPANY_ID);
+
+    const res = await fetch("http://localhost:4000/clients/import-excel", {
+      method: "POST",
+      body: formData,
+    });
+
+    const data = await res.json();
+
+    alert(
+      `Import tugadi\nYaratildi: ${data.created}\nYangilandi: ${data.updated}\nO‘tkazib yuborildi: ${data.skipped}`,
+    );
+
+    event.target.value = "";
+    await loadClients();
+  }
+
+  async function exportExcel() {
+    const res = await fetch(
+      `http://localhost:4000/clients/export-excel?companyId=${COMPANY_ID}`,
+    );
+
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "operix-clients.xlsx";
+    a.click();
+
+    window.URL.revokeObjectURL(url);
+  }
 
   const filteredClients = useMemo(() => {
-    return clients.filter((client) => {
-      const q = search.toLowerCase();
+    const q = search.trim().toLowerCase();
+    const qDigits = normalizePhone(search);
 
-      return (
+    if (!q) return clients;
+
+    return clients.filter((client) => {
+      const clientPhoneDigits = normalizePhone(client.phone);
+      const guarantorPhoneDigits = normalizePhone(client.guarantorPhone);
+
+      const textMatch =
         client.fullName.toLowerCase().includes(q) ||
+        (client.address || "").toLowerCase().includes(q) ||
         client.phone.toLowerCase().includes(q) ||
-        (client.address || "").toLowerCase().includes(q)
-      );
+        (client.guarantorName || "").toLowerCase().includes(q) ||
+        (client.guarantorPhone || "").toLowerCase().includes(q);
+
+      const phoneMatch =
+        qDigits.length > 0 &&
+        (clientPhoneDigits.includes(qDigits) ||
+          guarantorPhoneDigits.includes(qDigits) ||
+          clientPhoneDigits.endsWith(qDigits) ||
+          guarantorPhoneDigits.endsWith(qDigits));
+
+      return textMatch || phoneMatch;
     });
   }, [clients, search]);
 
-  function getClientRemaining(client: Client) {
-    return client.debts.reduce((sum, debt) => {
-      const paid = debt.payments.reduce(
-        (s, payment) => s + Number(payment.amount),
-        0,
-      );
+  function getClientRemainingByCurrency(client: Client, currency: "UZS" | "USD") {
+    return client.debts
+      .filter((debt) => debt.currency === currency)
+      .reduce((sum, debt) => {
+        const paid = debt.payments
+          .filter((payment) => payment.currency === currency)
+          .reduce((s, payment) => s + Number(payment.amount), 0);
 
-      return sum + (Number(debt.amount) - paid);
-    }, 0);
+        return sum + (Number(debt.amount) - paid);
+      }, 0);
   }
+
+
 
   function getClientStatus(client: Client) {
-    const remaining = getClientRemaining(client);
+    const uzsRemaining = getClientRemainingByCurrency(client, "UZS");
+    const usdRemaining = getClientRemainingByCurrency(client, "USD");
 
     if (client.debts.length === 0) return "NO DEBT";
-    if (remaining <= 0) return "CLOSED";
+    if (uzsRemaining <= 0 && usdRemaining <= 0) return "CLOSED";
+
     return "ACTIVE";
   }
+
+
 
   return (
     <AppLayout title="Mijozlar" subtitle="Mijozlar va qarzdorlar bazasi">
@@ -120,17 +217,37 @@ export default function ClientsPage() {
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Ism, telefon yoki manzil bo‘yicha qidirish..."
+          placeholder="Ism, telefon, oxirgi 4 raqam yoki manzil..."
           className="w-full max-w-md rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium outline-none transition focus:border-slate-400"
         />
 
-        <button
-          type="button"
-          onClick={() => setShowClientModal(true)}
-          className="rounded-xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
-        >
-          + Yangi mijoz
-        </button>
+        <div className="flex items-center gap-2">
+          <label className="cursor-pointer rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">
+            Excel import
+            <input
+              type="file"
+              accept=".xlsx,.xls"
+              className="hidden"
+              onChange={importExcel}
+            />
+          </label>
+
+          <button
+            type="button"
+            onClick={exportExcel}
+            className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+          >
+            Excel export
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowClientModal(true)}
+            className="rounded-xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+          >
+            + Yangi mijoz
+          </button>
+        </div>
       </div>
 
       <div className="overflow-hidden rounded-[20px] border border-slate-200 bg-white shadow-sm">
@@ -145,9 +262,9 @@ export default function ClientsPage() {
 
         <div className="divide-y divide-slate-100">
           {filteredClients.map((client) => {
-            const remaining = getClientRemaining(client);
+            const uzsRemaining = getClientRemainingByCurrency(client, "UZS");
+            const usdRemaining = getClientRemainingByCurrency(client, "USD");
             const status = getClientStatus(client);
-
             return (
               <button
                 key={client.id}
@@ -166,7 +283,7 @@ export default function ClientsPage() {
 
                 <div>
                   <p className="text-[13px] font-medium text-slate-500">
-                    {client.phone}
+                    {formatUzPhone(client.phone)}
                   </p>
                   <p className="mt-1 text-[12px] font-medium text-slate-400">
                     {client.address || "-"}
@@ -174,9 +291,25 @@ export default function ClientsPage() {
                 </div>
 
                 <div>
-                  <p className="text-[13px] font-semibold text-[#FF6B00]">
-                    {remaining.toLocaleString("ru-RU")} UZS
-                  </p>
+                  <div className="space-y-1">
+                    {uzsRemaining > 0 && (
+                      <p className="text-[13px] font-semibold text-sky-600">
+                        {uzsRemaining.toLocaleString("ru-RU")} UZS
+                      </p>
+                    )}
+
+                    {usdRemaining > 0 && (
+                      <p className="text-[13px] font-semibold text-emerald-600">
+                        {usdRemaining.toLocaleString("ru-RU")} USD
+                      </p>
+                    )}
+
+                    {uzsRemaining <= 0 && usdRemaining <= 0 && (
+                      <p className="text-[13px] font-semibold text-slate-400">
+                        0
+                      </p>
+                    )}
+                  </div>
                   <p className="mt-1 text-[12px] font-medium text-slate-400">
                     Qoldiq
                   </p>
@@ -220,8 +353,9 @@ export default function ClientsPage() {
 
               <input
                 value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="Telefon"
+                onChange={(e) => setPhone(formatUzPhone(e.target.value))}
+                placeholder="+998 91 000 00 00"
+                inputMode="tel"
                 className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-slate-400"
               />
 
@@ -241,8 +375,9 @@ export default function ClientsPage() {
 
               <input
                 value={guarantorPhone}
-                onChange={(e) => setGuarantorPhone(e.target.value)}
-                placeholder="Kafil telefoni"
+                onChange={(e) => setGuarantorPhone(formatUzPhone(e.target.value))}
+                placeholder="+998 91 000 00 00"
+                inputMode="tel"
                 className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-slate-400"
               />
             </div>

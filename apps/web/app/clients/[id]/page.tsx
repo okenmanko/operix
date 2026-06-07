@@ -35,6 +35,39 @@ type Client = {
   debts: Debt[];
 };
 
+function onlyDigits(value: string) {
+  return value.replace(/\D/g, "");
+}
+
+function formatUzPhone(value?: string) {
+  if (!value) return "-";
+
+  let digits = onlyDigits(value);
+
+  if (digits.startsWith("998")) digits = digits.slice(3);
+  if (digits.startsWith("8")) digits = digits.slice(1);
+
+  digits = digits.slice(0, 9);
+
+  const operator = digits.slice(0, 2);
+  const first = digits.slice(2, 5);
+  const second = digits.slice(5, 7);
+  const third = digits.slice(7, 9);
+
+  let result = "+998";
+
+  if (operator) result += ` ${operator}`;
+  if (first) result += ` ${first}`;
+  if (second) result += ` ${second}`;
+  if (third) result += ` ${third}`;
+
+  return result;
+}
+
+function money(value: number) {
+  return Number(value || 0).toLocaleString("ru-RU");
+}
+
 export default function ClientDetailPage() {
   const params = useParams();
   const id = params.id as string;
@@ -46,6 +79,13 @@ export default function ClientDetailPage() {
   const [debtCurrency, setDebtCurrency] = useState("UZS");
   const [debtDueDate, setDebtDueDate] = useState("");
   const [debtComment, setDebtComment] = useState("");
+
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editFullName, setEditFullName] = useState("");
+  const [editPhone, setEditPhone] = useState("");
+  const [editAddress, setEditAddress] = useState("");
+  const [editGuarantorName, setEditGuarantorName] = useState("");
+  const [editGuarantorPhone, setEditGuarantorPhone] = useState("");
 
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [selectedDebtId, setSelectedDebtId] = useState("");
@@ -117,6 +157,74 @@ export default function ClientDetailPage() {
     await loadClient();
   }
 
+  async function deletePayment(paymentId: string) {
+    const confirmed = window.confirm("To‘lovni o‘chirishni tasdiqlaysizmi?");
+    if (!confirmed) return;
+
+    await fetch(`http://localhost:4000/payments/${paymentId}`, {
+      method: "DELETE",
+    });
+
+    await loadClient();
+  }
+
+  async function closeDebt(debtId: string) {
+    const confirmed = window.confirm("Qarzni yopishni tasdiqlaysizmi?");
+    if (!confirmed) return;
+
+    await fetch(`http://localhost:4000/debts/${debtId}/close`, {
+      method: "PATCH",
+    });
+
+    await loadClient();
+  }
+
+  async function deleteDebt(debtId: string) {
+    const confirmed = window.confirm(
+      "Qarzni o‘chirishni tasdiqlaysizmi? Ichidagi barcha to‘lovlar ham o‘chadi.",
+    );
+
+    if (!confirmed) return;
+
+    await fetch(`http://localhost:4000/debts/${debtId}`, {
+      method: "DELETE",
+    });
+
+    await loadClient();
+  }
+
+  function openEditModal() {
+    if (!client) return;
+
+    setEditFullName(client.fullName || "");
+    setEditPhone(formatUzPhone(client.phone || ""));
+    setEditAddress(client.address || "");
+    setEditGuarantorName(client.guarantorName || "");
+    setEditGuarantorPhone(formatUzPhone(client.guarantorPhone || ""));
+    setShowEditModal(true);
+  }
+
+  async function updateClient() {
+    if (!client || !editFullName || !editPhone) return;
+
+    await fetch(`http://localhost:4000/clients/${client.id}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        fullName: editFullName,
+        phone: editPhone,
+        address: editAddress || undefined,
+        guarantorName: editGuarantorName || undefined,
+        guarantorPhone: editGuarantorPhone || undefined,
+      }),
+    });
+
+    setShowEditModal(false);
+    await loadClient();
+  }
+
   if (!client) {
     return (
       <AppLayout title="Client" subtitle="Loading...">
@@ -127,51 +235,84 @@ export default function ClientDetailPage() {
     );
   }
 
-  const totalDebt = client.debts.reduce((sum, d) => sum + Number(d.amount), 0);
-  const totalPaid = client.debts.reduce((sum, d) => sum + Number(d.paidAmount), 0);
-  const totalRemaining = client.debts.reduce(
-    (sum, d) => sum + Number(d.remainingAmount),
-    0,
-  );
+  const uzsTotal = client.debts
+    .filter((d) => d.currency === "UZS")
+    .reduce((sum, d) => sum + Number(d.amount), 0);
+
+  const uzsPaid = client.debts
+    .filter((d) => d.currency === "UZS")
+    .reduce((sum, d) => sum + Number(d.paidAmount), 0);
+
+  const uzsRemaining = client.debts
+    .filter((d) => d.currency === "UZS")
+    .reduce((sum, d) => sum + Number(d.remainingAmount), 0);
+
+  const usdTotal = client.debts
+    .filter((d) => d.currency === "USD")
+    .reduce((sum, d) => sum + Number(d.amount), 0);
+
+  const usdPaid = client.debts
+    .filter((d) => d.currency === "USD")
+    .reduce((sum, d) => sum + Number(d.paidAmount), 0);
+
+  const usdRemaining = client.debts
+    .filter((d) => d.currency === "USD")
+    .reduce((sum, d) => sum + Number(d.remainingAmount), 0);
 
   return (
     <AppLayout title={client.fullName} subtitle="Mijoz kartasi va qarzlar tarixi">
       <div className="mb-5 flex items-center justify-between">
         <div className="text-sm font-medium text-slate-500">
-          Client ID: <span className="text-slate-700">{client.id.slice(0, 10)}</span>
+          Client ID:{" "}
+          <span className="text-slate-700">{client.id.slice(0, 10)}</span>
         </div>
 
         <div className="flex gap-2">
           <button
             type="button"
-            onClick={() => setShowDebtModal(true)}
-            className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
+            onClick={openEditModal}
+            className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
           >
-            + Qarz qo‘shish
+            Tahrirlash
           </button>
 
           <button
             type="button"
-            className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            onClick={() => setShowDebtModal(true)}
+            className="rounded-xl bg-[#3B82F6] px-4 py-2.5 text-sm font-semibold text-white transition hover:opacity-90"
           >
-            Tahrirlash
+            + Qarz qo‘shish
           </button>
         </div>
       </div>
 
       <div className="grid grid-cols-3 gap-4">
-        <InfoCard title="Telefon" value={client.phone} />
+        <InfoCard title="Telefon" value={formatUzPhone(client.phone)} />
         <InfoCard title="Manzil" value={client.address || "-"} />
         <InfoCard
           title="Kafil"
-          value={`${client.guarantorName || "-"} ${client.guarantorPhone || ""}`}
+          value={`${client.guarantorName || "-"} ${
+            client.guarantorPhone ? formatUzPhone(client.guarantorPhone) : ""
+          }`}
         />
       </div>
 
-      <div className="mt-5 grid grid-cols-3 gap-4">
-        <MoneyCard title="Jami qarz" value={totalDebt} />
-        <MoneyCard title="To‘langan" value={totalPaid} green />
-        <MoneyCard title="Qoldiq" value={totalRemaining} orange />
+      <div className="mt-5 grid grid-cols-2 gap-4">
+        <CurrencyPanel
+          title="UZS hisoboti"
+          total={uzsTotal}
+          paid={uzsPaid}
+          remaining={uzsRemaining}
+          currency="UZS"
+        />
+
+        <CurrencyPanel
+          title="USD hisoboti"
+          total={usdTotal}
+          paid={usdPaid}
+          remaining={usdRemaining}
+          currency="USD"
+        />
       </div>
 
       <div className="mt-5 overflow-hidden rounded-[20px] border border-slate-200 bg-white shadow-sm">
@@ -193,7 +334,7 @@ export default function ClientDetailPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-[16px] font-semibold text-slate-950">
-                      {debt.amount.toLocaleString("ru-RU")} {debt.currency}
+                      {money(debt.amount)} {debt.currency}
                     </p>
                     <p className="mt-1 text-[13px] font-medium text-slate-400">
                       {debt.comment || "Izoh yo‘q"}
@@ -201,16 +342,36 @@ export default function ClientDetailPage() {
                   </div>
 
                   <div className="flex items-center gap-2">
+                    {debt.status !== "CLOSED" && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedDebtId(debt.id);
+                          setPaymentCurrency(debt.currency);
+                          setShowPaymentModal(true);
+                        }}
+                        className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-600 transition hover:bg-slate-50"
+                      >
+                        + To‘lov
+                      </button>
+                    )}
+
+                    {debt.status !== "CLOSED" && (
+                      <button
+                        type="button"
+                        onClick={() => closeDebt(debt.id)}
+                        className="rounded-full border border-emerald-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-emerald-600 transition hover:bg-emerald-50"
+                      >
+                        Yopish
+                      </button>
+                    )}
+
                     <button
                       type="button"
-                      onClick={() => {
-                        setSelectedDebtId(debt.id);
-                        setPaymentCurrency(debt.currency);
-                        setShowPaymentModal(true);
-                      }}
-                      className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-600 transition hover:bg-slate-50"
+                      onClick={() => deleteDebt(debt.id)}
+                      className="rounded-full border border-red-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-red-600 transition hover:bg-red-50"
                     >
-                      + To‘lov
+                      O‘chirish
                     </button>
 
                     <span className="rounded-full bg-slate-100 px-3 py-1.5 text-[11px] font-semibold text-slate-600">
@@ -220,8 +381,14 @@ export default function ClientDetailPage() {
                 </div>
 
                 <div className="mt-4 grid grid-cols-3 gap-3">
-                  <MiniStat title="To‘langan" value={debt.paidAmount} />
-                  <MiniStat title="Qoldiq" value={debt.remainingAmount} />
+                  <MiniStat
+                    title="To‘langan"
+                    value={`${money(debt.paidAmount)} ${debt.currency}`}
+                  />
+                  <MiniStat
+                    title="Qoldiq"
+                    value={`${money(debt.remainingAmount)} ${debt.currency}`}
+                  />
                   <MiniStat
                     title="Muddat"
                     value={
@@ -250,17 +417,28 @@ export default function ClientDetailPage() {
                         >
                           <div>
                             <p className="text-[14px] font-semibold text-slate-950">
-                              {payment.amount.toLocaleString("ru-RU")}{" "}
-                              {payment.currency}
+                              {money(payment.amount)} {payment.currency}
                             </p>
                             <p className="text-[12px] font-medium text-slate-400">
                               {payment.method || "-"} • {payment.comment || "-"}
                             </p>
                           </div>
 
-                          <p className="text-[12px] font-medium text-slate-400">
-                            {new Date(payment.createdAt).toLocaleDateString("ru-RU")}
-                          </p>
+                          <div className="flex items-center gap-3">
+                            <p className="text-[12px] font-medium text-slate-400">
+                              {new Date(payment.createdAt).toLocaleDateString(
+                                "ru-RU",
+                              )}
+                            </p>
+
+                            <button
+                              type="button"
+                              onClick={() => deletePayment(payment.id)}
+                              className="rounded-lg border border-red-200 px-2 py-1 text-[11px] font-semibold text-red-600 transition hover:bg-red-50"
+                            >
+                              O‘chirish
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -271,6 +449,79 @@ export default function ClientDetailPage() {
           )}
         </div>
       </div>
+
+      {showEditModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/30 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-[22px] bg-white p-6 shadow-2xl">
+            <h2 className="text-[20px] font-semibold text-slate-950">
+              Mijozni tahrirlash
+            </h2>
+
+            <p className="mt-1 text-[13px] font-medium text-slate-400">
+              Mijoz ma’lumotlarini yangilang
+            </p>
+
+            <div className="mt-5 space-y-3">
+              <input
+                value={editFullName}
+                onChange={(e) => setEditFullName(e.target.value)}
+                placeholder="Ism Familiya"
+                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-slate-400"
+              />
+
+              <input
+                value={editPhone}
+                onChange={(e) => setEditPhone(formatUzPhone(e.target.value))}
+                placeholder="+998 91 000 00 00"
+                inputMode="tel"
+                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-slate-400"
+              />
+
+              <input
+                value={editAddress}
+                onChange={(e) => setEditAddress(e.target.value)}
+                placeholder="Manzil"
+                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-slate-400"
+              />
+
+              <input
+                value={editGuarantorName}
+                onChange={(e) => setEditGuarantorName(e.target.value)}
+                placeholder="Kafil ismi"
+                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-slate-400"
+              />
+
+              <input
+                value={editGuarantorPhone}
+                onChange={(e) =>
+                  setEditGuarantorPhone(formatUzPhone(e.target.value))
+                }
+                placeholder="+998 91 000 00 00"
+                inputMode="tel"
+                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-slate-400"
+              />
+            </div>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowEditModal(false)}
+                className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
+              >
+                Bekor qilish
+              </button>
+
+              <button
+                type="button"
+                onClick={updateClient}
+                className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
+              >
+                Saqlash
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showDebtModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/30 backdrop-blur-sm">
@@ -285,8 +536,12 @@ export default function ClientDetailPage() {
 
             <div className="mt-5 space-y-3">
               <input
+                type="text"
+                inputMode="numeric"
                 value={debtAmount}
-                onChange={(e) => setDebtAmount(e.target.value)}
+                onChange={(e) =>
+                  setDebtAmount(e.target.value.replace(/\D/g, ""))
+                }
                 placeholder="Summa"
                 className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-slate-400"
               />
@@ -349,8 +604,12 @@ export default function ClientDetailPage() {
 
             <div className="mt-5 space-y-3">
               <input
+                type="text"
+                inputMode="numeric"
                 value={paymentAmount}
-                onChange={(e) => setPaymentAmount(e.target.value)}
+                onChange={(e) =>
+                  setPaymentAmount(e.target.value.replace(/\D/g, ""))
+                }
                 placeholder="Summa"
                 className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-slate-400"
               />
@@ -415,41 +674,71 @@ function InfoCard({ title, value }: { title: string; value: string }) {
   );
 }
 
-function MoneyCard({
+function CurrencyPanel({
+  title,
+  total,
+  paid,
+  remaining,
+  currency,
+}: {
+  title: string;
+  total: number;
+  paid: number;
+  remaining: number;
+  currency: string;
+}) {
+  return (
+    <div className="rounded-[18px] border border-slate-200 bg-white p-5 shadow-sm">
+      <p className="text-[15px] font-semibold text-slate-950">{title}</p>
+
+      <div className="mt-4 grid grid-cols-3 gap-3">
+        <MiniMoney title="Jami" value={total} currency={currency} />
+        <MiniMoney title="To‘langan" value={paid} currency={currency} green />
+        <MiniMoney title="Qoldiq" value={remaining} currency={currency} orange />
+      </div>
+    </div>
+  );
+}
+
+function MiniMoney({
   title,
   value,
+  currency,
   green,
   orange,
 }: {
   title: string;
   value: number;
+  currency: string;
   green?: boolean;
   orange?: boolean;
 }) {
   return (
-    <div className="rounded-[18px] border border-slate-200 bg-white p-5 shadow-sm">
-      <p className="text-[13px] font-medium text-slate-400">{title}</p>
+    <div className="rounded-[16px] bg-slate-50 p-4">
+      <p className="text-[12px] font-medium text-slate-400">{title}</p>
       <p
-        className={`mt-2 text-[24px] font-semibold tracking-[-0.03em] ${
-          green
-            ? "text-emerald-600"
-            : orange
-              ? "text-[#FF6B00]"
-              : "text-slate-900"
+        className={`mt-1.5 text-[14px] font-semibold ${
+          green ? "text-emerald-600" : orange ? "text-[#3B82F6]" : "text-slate-900"
         }`}
       >
-        {value.toLocaleString("ru-RU")} UZS
+        {money(value)} {currency}
       </p>
     </div>
   );
 }
 
-function MiniStat({ title, value }: { title: string; value: string | number }) {
+function MiniStat({
+  title,
+  value,
+}: {
+  title: string;
+  value: string | number;
+}) {
   return (
     <div className="rounded-[16px] bg-slate-50 p-4">
       <p className="text-[12px] font-medium text-slate-400">{title}</p>
       <p className="mt-1.5 text-[14px] font-semibold text-slate-900">
-        {typeof value === "number" ? value.toLocaleString("ru-RU") : value}
+        {typeof value === "number" ? money(value) : value}
       </p>
     </div>
   );
