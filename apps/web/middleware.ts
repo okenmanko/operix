@@ -1,36 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const protectedRoutes = [
-  "/",
-  "/clients",
-  "/debts",
-  "/payments",
-  "/reports",
-  "/settings",
-];
+const publicRoutes = ["/login"];
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  const isProtected = protectedRoutes.some((route) => {
-    if (route === "/") return pathname === "/";
-    return pathname.startsWith(route);
-  });
+  const isPublicRoute = publicRoutes.some((route) =>
+    pathname.startsWith(route),
+  );
 
-  if (!isProtected) {
+  const isAsset =
+    pathname.startsWith("/_next") ||
+    pathname.startsWith("/favicon.ico") ||
+    pathname.startsWith("/logo.png");
+
+  if (isPublicRoute || isAsset) {
     return NextResponse.next();
   }
 
   const token = request.cookies.get("operix_token")?.value;
 
   if (!token) {
-    const loginUrl = new URL("/login", request.url);
-    return NextResponse.redirect(loginUrl);
+    return NextResponse.redirect(new URL("/login", request.url));
   }
 
   return NextResponse.next();
 }
 
 export const config = {
-  matcher: ["/", "/clients/:path*", "/debts/:path*", "/payments/:path*", "/reports/:path*", "/settings/:path*"],
+  matcher: ["/((?!api).*)"],
 };

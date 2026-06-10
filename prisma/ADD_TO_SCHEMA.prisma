@@ -1,0 +1,88 @@
+model Warehouse {
+  id        String   @id @default(cuid())
+  name      String
+  address   String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  stockItems     StockItem[]
+  stockMovements StockMovement[]
+}
+
+model Product {
+  id          String   @id @default(cuid())
+  name        String
+  sku         String?
+  barcode     String?
+  brand       String?
+  model       String?
+  category    String?
+  description String?
+  costPrice   Float?
+  salePrice   Float?
+  currency    String   @default("UZS")
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  stockItems     StockItem[]
+  stockMovements StockMovement[]
+}
+
+model StockItem {
+  id           String   @id @default(cuid())
+  qrCode       String   @unique
+  serialNumber String?
+  status       String   @default("IN_STOCK")
+  costPrice    Float?
+  salePrice    Float?
+  currency     String   @default("UZS")
+  comment      String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @default(now()) @updatedAt
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  warehouseId String
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  movements StockMovement[]
+}
+
+model StockMovement {
+  id              String   @id @default(cuid())
+  type            String
+  quantity        Int      @default(1)
+  reason          String?
+  comment         String?
+  referenceId     String?
+  fromWarehouseId String?
+  toWarehouseId   String?
+  createdAt       DateTime @default(now())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  productId String?
+  product   Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  stockItemId String?
+  stockItem   StockItem? @relation(fields: [stockItemId], references: [id], onDelete: SetNull)
+  warehouseId String?
+  warehouse   Warehouse? @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+}
+
+model Cashflow {
+  id          String   @id @default(cuid())
+  type        String
+  amount      Float
+  currency    String   @default("UZS")
+  category    String?
+  method      String?
+  description String?
+  referenceId String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}

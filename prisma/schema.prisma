@@ -8,40 +8,67 @@ datasource db {
 }
 
 model Company {
-  id        String   @id @default(cuid())
-  name      String
-  phone     String?
-  createdAt DateTime @default(now())
+  id               String   @id @default(cuid())
+  name             String
+  phone            String?
+  moyskladApiUrl   String?
+  moyskladToken    String?
+  oneCApiUrl       String?
+  oneCToken        String?
+  usdRate          Float    @default(12200)
+  status           String   @default("TRIAL")
+  subscriptionPlan String   @default("STARTER")
+  enabledModules   String[] @default(["CRM", "HR", "DELIVERY"])
+  botCompanyCode   String?  @unique
+  trialEndsAt      DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @default(now()) @updatedAt
 
-  users   User[]
-  clients Client[]
+  users           User[]
+  clients         Client[]
+  deliveryOrders  DeliveryOrder[]
+  integrations    IntegrationSetting[]
+  integrationLogs IntegrationLog[]
+
+  warehouses     Warehouse[]
+products       Product[]
+stockItems     StockItem[]
+stockMovements StockMovement[]
+cashflows      Cashflow[]
 }
 
 model User {
-  id        String   @id @default(cuid())
-  fullName  String
-  phone     String   @unique
-  password  String
-  role      String   @default("OWNER")
-  createdAt DateTime @default(now())
+  id         String   @id @default(cuid())
+  fullName   String
+  phone      String   @unique
+  password   String
+  role       String   @default("OWNER")
+  telegramId String?
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @default(now()) @updatedAt
 
   companyId String
-  company   Company @relation(fields: [companyId], references: [id])
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 }
 
 model Client {
-  id             String   @id @default(cuid())
-  fullName       String
-  phone          String
-  address        String?
-  guarantorName  String?
-  guarantorPhone String?
+  id              String   @id @default(cuid())
+  fullName        String
+  phone           String
+  normalizedPhone String?
+  notes           String?
+  address         String?
+  guarantorName   String?
+  guarantorPhone  String?
+  managerId       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @default(now()) @updatedAt
 
   companyId String
-  company   Company @relation(fields: [companyId], references: [id])
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
-  debts     Debt[]
-  createdAt DateTime @default(now())
+  debts Debt[]
 }
 
 model Debt {
@@ -51,10 +78,12 @@ model Debt {
   dueDate   DateTime?
   status    String   @default("ACTIVE")
   comment   String?
+  managerId String?
   createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
 
   clientId String
-  client   Client @relation(fields: [clientId], references: [id])
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
   payments Payment[]
 }
@@ -66,7 +95,158 @@ model Payment {
   method    String?
   comment   String?
   createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
 
   debtId String
-  debt   Debt @relation(fields: [debtId], references: [id])
+  debt   Debt @relation(fields: [debtId], references: [id], onDelete: Cascade)
+}
+
+model DeliveryOrder {
+  id              String   @id @default(cuid())
+  orderNumber     String?
+  clientName      String
+  clientPhone     String?
+  address         String?
+  items           Json?
+  courierName     String?
+  courierPhone    String?
+  paymentAmount   Float?
+  paymentCurrency String?
+  paymentStatus   String?  @default("UNPAID")
+  status          String   @default("CREATED")
+  comment         String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @default(now()) @updatedAt
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
+
+model IntegrationSetting {
+  id        String   @id @default(cuid())
+  type      String
+  name      String?
+  baseUrl   String?
+  token     String?
+  login     String?
+  password  String?
+  payload   Json?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
+
+model IntegrationLog {
+  id        String   @id @default(cuid())
+  type      String
+  action    String
+  provider  String?
+  status    String
+  payload   Json?
+  error     String?
+  createdAt DateTime @default(now())
+
+  companyId String?
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+}
+
+model BotSession {
+  id         String   @id @default(cuid())
+  telegramId String   @unique
+  companyId  String?
+  role       String   @default("USER")
+  fullName   String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @default(now()) @updatedAt
+}
+model Warehouse {
+  id        String   @id @default(cuid())
+  name      String
+  address   String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  stockItems     StockItem[]
+  stockMovements StockMovement[]
+}
+
+model Product {
+  id          String   @id @default(cuid())
+  name        String
+  sku         String?
+  barcode     String?
+  brand       String?
+  model       String?
+  category    String?
+  description String?
+  costPrice   Float?
+  salePrice   Float?
+  currency    String   @default("UZS")
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  stockItems     StockItem[]
+  stockMovements StockMovement[]
+}
+
+model StockItem {
+  id           String   @id @default(cuid())
+  qrCode       String   @unique
+  serialNumber String?
+  status       String   @default("IN_STOCK")
+  costPrice    Float?
+  salePrice    Float?
+  currency     String   @default("UZS")
+  comment      String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @default(now()) @updatedAt
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  warehouseId String
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  movements StockMovement[]
+}
+
+model StockMovement {
+  id              String   @id @default(cuid())
+  type            String
+  quantity        Int      @default(1)
+  reason          String?
+  comment         String?
+  referenceId     String?
+  fromWarehouseId String?
+  toWarehouseId   String?
+  createdAt       DateTime @default(now())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  productId String?
+  product   Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  stockItemId String?
+  stockItem   StockItem? @relation(fields: [stockItemId], references: [id], onDelete: SetNull)
+  warehouseId String?
+  warehouse   Warehouse? @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+}
+
+model Cashflow {
+  id          String   @id @default(cuid())
+  type        String
+  amount      Float
+  currency    String   @default("UZS")
+  category    String?
+  method      String?
+  description String?
+  referenceId String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 }

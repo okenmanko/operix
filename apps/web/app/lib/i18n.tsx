@@ -1,72 +1,90 @@
-export type Lang = "uz" | "ru";
+"use client";
 
-export const translations = {
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  type ReactNode,
+} from "react";
+
+type Lang = "uz" | "ru";
+
+export const dict = {
   uz: {
     dashboard: "Dashboard",
     clients: "Mijozlar",
     debts: "Qarzlar",
     payments: "To‘lovlar",
     reports: "Hisobotlar",
+    delivery: "Delivery",
+    inventory: "Sklad",
+    warehouses: "Skladlar",
+    qrCodes: "QR kodlar",
+    qrScanner: "QR Scanner",
+    movements: "Harakatlar",
+    cashflow: "DDS",
+    integrations: "Integratsiyalar",
     settings: "Sozlamalar",
-    businessOS: "Business OS",
-    operixCRM: "Operix CRM",
-    clientList: "Mijozlar ro‘yxati",
-    debtList: "Qarzlar ro‘yxati",
-    paymentList: "To‘lovlar ro‘yxati",
-    newClient: "Yangi mijoz",
-    newDebt: "Yangi qarz",
-    newPayment: "Yangi to‘lov",
-    total: "Jami",
-    phone: "Telefon",
-    address: "Manzil",
-    guarantor: "Kafil",
-    guarantorPhone: "Kafil telefoni",
-    debt: "Qarz",
-    paid: "To‘langan",
-    remaining: "Qoldiq",
-    status: "Status",
-    dueDate: "Muddat",
-    clientsSubtitle: "Mijozlar va qarzdorlar bazasi",
-    debtsSubtitle: "Qarzlar va qoldiq nazorati",
-    paymentsSubtitle: "To‘lovlar tarixi",
   },
   ru: {
-    dashboard: "Панель",
+    dashboard: "Dashboard",
     clients: "Клиенты",
     debts: "Долги",
     payments: "Платежи",
     reports: "Отчёты",
+    delivery: "Доставка",
+    inventory: "Склад",
+    warehouses: "Склады",
+    qrCodes: "QR коды",
+    qrScanner: "QR Сканер",
+    movements: "Движения",
+    cashflow: "ДДС",
+    integrations: "Интеграции",
     settings: "Настройки",
-    businessOS: "Business OS",
-    operixCRM: "Operix CRM",
-    clientList: "Список клиентов",
-    debtList: "Список долгов",
-    paymentList: "Список платежей",
-    newClient: "Новый клиент",
-    newDebt: "Новый долг",
-    newPayment: "Новый платёж",
-    total: "Всего",
-    phone: "Телефон",
-    address: "Адрес",
-    guarantor: "Поручитель",
-    guarantorPhone: "Телефон поручителя",
-    debt: "Долг",
-    paid: "Оплачено",
-    remaining: "Остаток",
-    status: "Статус",
-    dueDate: "Срок",
-    clientsSubtitle: "База клиентов и должников",
-    debtsSubtitle: "Контроль долгов и остатков",
-    paymentsSubtitle: "История платежей",
   },
 };
 
-export function getLang(): Lang {
-  if (typeof window === "undefined") return "uz";
-  return (localStorage.getItem("operix_lang") as Lang) || "uz";
+type Key = keyof typeof dict.uz;
+
+const I18nContext = createContext<{
+  lang: Lang;
+  setLang: (lang: Lang) => void;
+  t: (key: Key) => string;
+} | null>(null);
+
+export function I18nProvider({ children }: { children: ReactNode }) {
+  const [lang, setLangState] = useState<Lang>("uz");
+
+  useEffect(() => {
+    const saved = localStorage.getItem("operix_lang") as Lang | null;
+    if (saved === "uz" || saved === "ru") setLangState(saved);
+  }, []);
+
+  function setLang(next: Lang) {
+    setLangState(next);
+    localStorage.setItem("operix_lang", next);
+  }
+
+  function t(key: Key) {
+    return dict[lang][key] || key;
+  }
+
+  return (
+    <I18nContext.Provider value={{ lang, setLang, t }}>
+      {children}
+    </I18nContext.Provider>
+  );
 }
 
-export function setLang(lang: Lang) {
-  localStorage.setItem("operix_lang", lang);
-  window.location.reload();
+export function useI18n() {
+  const ctx = useContext(I18nContext);
+  if (!ctx) {
+    return {
+      lang: "uz" as Lang,
+      setLang: () => {},
+      t: (key: Key) => dict.uz[key] || key,
+    };
+  }
+  return ctx;
 }

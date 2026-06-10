@@ -1,407 +1,71 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import AppLayout from "../components/AppLayout";
+import { apiJson } from "../lib/api";
 
-const COMPANY_ID = "cmq2dnifq000037ukftp1b9o4";
+type Client = { id: string; fullName: string; phone?: string; address?: string | null; notes?: string | null; createdAt?: string; };
 
-type Payment = {
-  id: string;
-  amount: number;
-  currency: string;
-};
-
-type Debt = {
-  id: string;
-  amount: number;
-  currency: string;
-  paidAmount?: number;
-  remainingAmount?: number;
-  status: string;
-  payments: Payment[];
-};
-
-type Client = {
-  id: string;
-  fullName: string;
-  phone: string;
-  address?: string;
-  guarantorName?: string;
-  guarantorPhone?: string;
-  debts: Debt[];
-};
-
-function onlyDigits(value: string) {
-  return value.replace(/\D/g, "");
+function toArray<T = any>(value: any): T[] {
+  if (Array.isArray(value)) return value;
+  if (Array.isArray(value?.items)) return value.items;
+  if (Array.isArray(value?.data)) return value.data;
+  if (Array.isArray(value?.results)) return value.results;
+  if (Array.isArray(value?.clients)) return value.clients;
+  if (Array.isArray(value?.debts)) return value.debts;
+  if (Array.isArray(value?.payments)) return value.payments;
+  if (Array.isArray(value?.reports)) return value.reports;
+  return [];
 }
 
-function formatUzPhone(value: string) {
-  let digits = onlyDigits(value);
-
-  if (digits.startsWith("998")) {
-    digits = digits.slice(3);
-  }
-
-  if (digits.startsWith("8")) {
-    digits = digits.slice(1);
-  }
-
-  digits = digits.slice(0, 9);
-
-  const operator = digits.slice(0, 2);
-  const first = digits.slice(2, 5);
-  const second = digits.slice(5, 7);
-  const third = digits.slice(7, 9);
-
-  let result = "+998";
-
-  if (operator) result += ` ${operator}`;
-  if (first) result += ` ${first}`;
-  if (second) result += ` ${second}`;
-  if (third) result += ` ${third}`;
-
-  return result;
-}
-
-function normalizePhone(value?: string) {
-  return onlyDigits(value || "");
+function money(value: any, currency = "UZS") {
+  return `${Number(value || 0).toLocaleString("ru-RU")} ${currency}`;
 }
 
 export default function ClientsPage() {
-  const router = useRouter();
-
   const [clients, setClients] = useState<Client[]>([]);
   const [search, setSearch] = useState("");
 
-  const [showClientModal, setShowClientModal] = useState(false);
-  const [fullName, setFullName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [address, setAddress] = useState("");
-  const [guarantorName, setGuarantorName] = useState("");
-  const [guarantorPhone, setGuarantorPhone] = useState("");
-
-  async function loadClients() {
-    const res = await fetch("http://localhost:4000/clients");
-    const data = await res.json();
-    setClients(data);
+  async function load() {
+    try { setClients(toArray<Client>(await apiJson<any>("/clients"))); } catch { setClients([]); }
   }
 
-  useEffect(() => {
-    loadClients();
-  }, []);
+  useEffect(() => { load(); }, []);
 
-  async function createClient() {
-    if (!fullName || !phone) return;
-
-    await fetch("http://localhost:4000/clients", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        fullName,
-        phone,
-        address: address || undefined,
-        guarantorName: guarantorName || undefined,
-        guarantorPhone: guarantorPhone || undefined,
-        companyId: COMPANY_ID,
-      }),
-    });
-
-    setShowClientModal(false);
-    setFullName("");
-    setPhone("");
-    setAddress("");
-    setGuarantorName("");
-    setGuarantorPhone("");
-
-    await loadClients();
-  }
-  async function importExcel(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("companyId", COMPANY_ID);
-
-    const res = await fetch("http://localhost:4000/clients/import-excel", {
-      method: "POST",
-      body: formData,
-    });
-
-    const data = await res.json();
-
-    alert(
-      `Import tugadi\nYaratildi: ${data.created}\nYangilandi: ${data.updated}\nO‘tkazib yuborildi: ${data.skipped}`,
-    );
-
-    event.target.value = "";
-    await loadClients();
-  }
-
-  async function exportExcel() {
-    const res = await fetch(
-      `http://localhost:4000/clients/export-excel?companyId=${COMPANY_ID}`,
-    );
-
-    const blob = await res.blob();
-    const url = window.URL.createObjectURL(blob);
-
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "operix-clients.xlsx";
-    a.click();
-
-    window.URL.revokeObjectURL(url);
-  }
-
-  const filteredClients = useMemo(() => {
+  const safeClients = Array.isArray(clients) ? clients : [];
+  const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const qDigits = normalizePhone(search);
-
-    if (!q) return clients;
-
-    return clients.filter((client) => {
-      const clientPhoneDigits = normalizePhone(client.phone);
-      const guarantorPhoneDigits = normalizePhone(client.guarantorPhone);
-
-      const textMatch =
-        client.fullName.toLowerCase().includes(q) ||
-        (client.address || "").toLowerCase().includes(q) ||
-        client.phone.toLowerCase().includes(q) ||
-        (client.guarantorName || "").toLowerCase().includes(q) ||
-        (client.guarantorPhone || "").toLowerCase().includes(q);
-
-      const phoneMatch =
-        qDigits.length > 0 &&
-        (clientPhoneDigits.includes(qDigits) ||
-          guarantorPhoneDigits.includes(qDigits) ||
-          clientPhoneDigits.endsWith(qDigits) ||
-          guarantorPhoneDigits.endsWith(qDigits));
-
-      return textMatch || phoneMatch;
-    });
-  }, [clients, search]);
-
-  function getClientRemainingByCurrency(client: Client, currency: "UZS" | "USD") {
-    return client.debts
-      .filter((debt) => debt.currency === currency)
-      .reduce((sum, debt) => {
-        const paid = debt.payments
-          .filter((payment) => payment.currency === currency)
-          .reduce((s, payment) => s + Number(payment.amount), 0);
-
-        return sum + (Number(debt.amount) - paid);
-      }, 0);
-  }
-
-
-
-  function getClientStatus(client: Client) {
-    const uzsRemaining = getClientRemainingByCurrency(client, "UZS");
-    const usdRemaining = getClientRemainingByCurrency(client, "USD");
-
-    if (client.debts.length === 0) return "NO DEBT";
-    if (uzsRemaining <= 0 && usdRemaining <= 0) return "CLOSED";
-
-    return "ACTIVE";
-  }
-
-
+    if (!q) return safeClients;
+    return safeClients.filter((c) => [c.fullName, c.phone, c.address, c.notes].filter(Boolean).join(" ").toLowerCase().includes(q));
+  }, [safeClients, search]);
 
   return (
-    <AppLayout title="Mijozlar" subtitle="Mijozlar va qarzdorlar bazasi">
-      <div className="mb-5 flex items-center justify-between gap-4">
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Ism, telefon, oxirgi 4 raqam yoki manzil..."
-          className="w-full max-w-md rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium outline-none transition focus:border-slate-400"
-        />
-
-        <div className="flex items-center gap-2">
-          <label className="cursor-pointer rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">
-            Excel import
-            <input
-              type="file"
-              accept=".xlsx,.xls"
-              className="hidden"
-              onChange={importExcel}
-            />
-          </label>
-
-          <button
-            type="button"
-            onClick={exportExcel}
-            className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-          >
-            Excel export
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setShowClientModal(true)}
-            className="rounded-xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
-          >
-            + Yangi mijoz
-          </button>
-        </div>
-      </div>
-
-      <div className="overflow-hidden rounded-[20px] border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-100 px-5 py-4">
-          <h2 className="text-[18px] font-semibold text-slate-950">
-            Mijozlar ro‘yxati
-          </h2>
-          <p className="mt-1 text-[13px] font-medium text-slate-400">
-            Jami: {filteredClients.length} ta mijoz
-          </p>
-        </div>
-
-        <div className="divide-y divide-slate-100">
-          {filteredClients.map((client) => {
-            const uzsRemaining = getClientRemainingByCurrency(client, "UZS");
-            const usdRemaining = getClientRemainingByCurrency(client, "USD");
-            const status = getClientStatus(client);
-            return (
-              <button
-                key={client.id}
-                type="button"
-                onClick={() => router.push(`/clients/${client.id}`)}
-                className="grid w-full grid-cols-5 items-center gap-4 px-5 py-4 text-left transition hover:bg-slate-50"
-              >
-                <div className="col-span-2">
-                  <p className="text-[15px] font-semibold text-slate-950">
-                    {client.fullName}
-                  </p>
-                  <p className="mt-1 text-[12px] font-medium text-slate-400">
-                    ID: {client.id.slice(0, 10)}
-                  </p>
-                </div>
-
-                <div>
-                  <p className="text-[13px] font-medium text-slate-500">
-                    {formatUzPhone(client.phone)}
-                  </p>
-                  <p className="mt-1 text-[12px] font-medium text-slate-400">
-                    {client.address || "-"}
-                  </p>
-                </div>
-
-                <div>
-                  <div className="space-y-1">
-                    {uzsRemaining > 0 && (
-                      <p className="text-[13px] font-semibold text-sky-600">
-                        {uzsRemaining.toLocaleString("ru-RU")} UZS
-                      </p>
-                    )}
-
-                    {usdRemaining > 0 && (
-                      <p className="text-[13px] font-semibold text-emerald-600">
-                        {usdRemaining.toLocaleString("ru-RU")} USD
-                      </p>
-                    )}
-
-                    {uzsRemaining <= 0 && usdRemaining <= 0 && (
-                      <p className="text-[13px] font-semibold text-slate-400">
-                        0
-                      </p>
-                    )}
-                  </div>
-                  <p className="mt-1 text-[12px] font-medium text-slate-400">
-                    Qoldiq
-                  </p>
-                </div>
-
-                <div className="flex justify-end">
-                  <span className="rounded-full bg-slate-100 px-3 py-1.5 text-[11px] font-semibold text-slate-600">
-                    {status}
-                  </span>
-                </div>
-              </button>
-            );
-          })}
-
-          {filteredClients.length === 0 && (
-            <div className="p-6 text-sm font-medium text-slate-400">
-              Mijoz topilmadi
-            </div>
-          )}
-        </div>
-      </div>
-
-      {showClientModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/30 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-[22px] bg-white p-6 shadow-2xl">
-            <h2 className="text-[20px] font-semibold text-slate-950">
-              Yangi mijoz qo‘shish
-            </h2>
-
-            <p className="mt-1 text-[13px] font-medium text-slate-400">
-              Mijoz ma’lumotlarini kiriting
-            </p>
-
-            <div className="mt-5 space-y-3">
-              <input
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                placeholder="Ism Familiya"
-                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-slate-400"
-              />
-
-              <input
-                value={phone}
-                onChange={(e) => setPhone(formatUzPhone(e.target.value))}
-                placeholder="+998 91 000 00 00"
-                inputMode="tel"
-                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-slate-400"
-              />
-
-              <input
-                value={address}
-                onChange={(e) => setAddress(e.target.value)}
-                placeholder="Manzil"
-                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-slate-400"
-              />
-
-              <input
-                value={guarantorName}
-                onChange={(e) => setGuarantorName(e.target.value)}
-                placeholder="Kafil ismi"
-                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-slate-400"
-              />
-
-              <input
-                value={guarantorPhone}
-                onChange={(e) => setGuarantorPhone(formatUzPhone(e.target.value))}
-                placeholder="+998 91 000 00 00"
-                inputMode="tel"
-                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-slate-400"
-              />
-            </div>
-
-            <div className="mt-6 flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setShowClientModal(false)}
-                className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
-              >
-                Bekor qilish
-              </button>
-
-              <button
-                type="button"
-                onClick={createClient}
-                className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
-              >
-                Saqlash
-              </button>
-            </div>
+    <AppLayout title="Mijozlar" subtitle="Mijozlar bazasi">
+      <div className="mb-5 grid grid-cols-3 gap-4">
+        {[['Jami mijozlar', safeClients.length], ['Qidiruv', filtered.length], ['Status', 'Active']].map(([l, v]) => (
+          <div key={String(l)} className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.05)]">
+            <p className="text-[13px] font-semibold text-slate-500">{l}</p>
+            <p className="mt-8 text-[30px] font-semibold tracking-[-0.06em] text-slate-950">{v}</p>
           </div>
+        ))}
+      </div>
+      <div className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.05)]">
+        <div className="flex items-center justify-between">
+          <h2 className="text-[22px] font-bold tracking-[-0.04em] text-slate-950">Mijozlar</h2>
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Qidirish..." className="h-11 w-[320px] rounded-2xl border border-slate-200 px-4 text-[14px] outline-none focus:border-sky-400 focus:ring-4 focus:ring-sky-100" />
         </div>
-      )}
+        <div className="mt-5 overflow-hidden rounded-2xl border border-slate-200">
+          <div className="grid grid-cols-[1fr_180px_1fr_140px] bg-slate-50 px-4 py-3 text-[12px] font-bold uppercase tracking-[0.08em] text-slate-400"><div>Mijoz</div><div>Telefon</div><div>Manzil/Izoh</div><div className="text-right">Sana</div></div>
+          {filtered.length === 0 ? <div className="p-8 text-center text-[14px] font-semibold text-slate-400">Ma’lumot yo‘q</div> : filtered.map((c) => (
+            <div key={c.id} className="grid grid-cols-[1fr_180px_1fr_140px] items-center border-t border-slate-100 px-4 py-4">
+              <div><p className="text-[14px] font-bold text-slate-950">{c.fullName}</p></div>
+              <div className="text-[13px] font-semibold text-slate-600">{c.phone || '-'}</div>
+              <div><p className="text-[13px] font-semibold text-slate-600">{c.address || '-'}</p><p className="mt-1 text-[12px] text-slate-400">{c.notes || '-'}</p></div>
+              <div className="text-right text-[12px] font-semibold text-slate-400">{c.createdAt ? new Date(c.createdAt).toLocaleDateString() : '-'}</div>
+            </div>
+          ))}
+        </div>
+      </div>
     </AppLayout>
   );
 }
