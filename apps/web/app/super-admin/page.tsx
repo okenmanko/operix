@@ -1,336 +1,347 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Building2, CheckCircle2, CircleDollarSign, Lock, LogOut, Plus, Search, ShieldCheck, SlidersHorizontal, Users, X } from "lucide-react";
-import { apiJson, logout } from "../lib/api";
+import { Building2, CheckCircle2, CreditCard, Plus, RefreshCw, Save, Search, XCircle } from "lucide-react";
+import SuperAdminShell from "./SuperAdminShell";
+import { apiJson } from "../lib/api";
+import { formatDate, formatLimit, formatUZS, moduleCodes, moduleLabels, normalizeModules, type CompanyStatus, type ModuleCode } from "../lib/modules";
 
-type Status = "TRIAL" | "ACTIVE" | "BLOCKED";
-type Plan = "STARTER" | "BUSINESS" | "PRO" | "CUSTOM";
+type Plan = {
+  id: string;
+  code: string;
+  name: string;
+  monthlyPriceUZS: number;
+  modules: ModuleCode[];
+  clientLimit?: number | null;
+  userLimit?: number | null;
+  productLimit?: number | null;
+  warehouseLimit?: number | null;
+};
+
 type Company = {
   id: string;
   name: string;
   phone?: string | null;
-  status?: Status;
+  status: CompanyStatus;
   subscriptionPlan?: string;
-  enabledModules?: string[];
-  trialEndsAt?: string | null;
-  createdAt?: string;
-  users?: Array<{ id: string; fullName: string; phone: string; role: string; isActive?: boolean }>;
-  _stats?: { usersCount?: number; clientsCount?: number; debtsCount?: number; paymentsCount?: number };
-  _count?: { users?: number; clients?: number };
+  enabledModules?: ModuleCode[];
+  monthlyPriceUZS?: number | null;
+  clientLimit?: number | null;
+  userLimit?: number | null;
+  productLimit?: number | null;
+  warehouseLimit?: number | null;
+  lastPaymentAt?: string | null;
+  nextPaymentAt?: string | null;
+  paymentDay?: number | null;
+  plan?: Plan | null;
+  planPayments?: any[];
+  _count?: { users?: number; clients?: number; products?: number; warehouses?: number };
 };
 
-const MODULES = [
-  { code: "CRM", label: "CRM", desc: "Mijozlar, qarzlar, to‘lovlar" },
-  { code: "DELIVERY", label: "Delivery", desc: "Yetkazib berish buyurtmalari" },
-  { code: "INVENTORY", label: "Sklad", desc: "Sklad, QR, mahsulotlar" },
-  { code: "POS", label: "POS/Sales", desc: "QR sotuv va kassaga tushum" },
-  { code: "CASHFLOW", label: "DDS", desc: "Pul kirim/chiqim nazorati" },
-  { code: "MOYSKLAD", label: "MoySklad", desc: "Integratsiya" },
-  { code: "ONE_C", label: "1C", desc: "Buxgalteriya integratsiyasi" },
-  { code: "ANALYTICS", label: "Analytics", desc: "Hisobot va grafiklar" },
-  { code: "KPI", label: "KPI", desc: "Hodimlar samaradorligi" },
-  { code: "AI_DIRECTOR", label: "AI Director", desc: "Rahbar uchun AI xulosa" },
-];
+const statuses: CompanyStatus[] = ["TRIAL", "ACTIVE", "BLOCKED", "EXPIRED"];
 
-const PLAN_PRESETS: Record<Plan, { label: string; price: number; clients: string; users: string; modules: string[] }> = {
-  STARTER: { label: "Starter", price: 300000, clients: "100", users: "3", modules: ["CRM", "DELIVERY"] },
-  BUSINESS: { label: "Business", price: 900000, clients: "2000", users: "15", modules: ["CRM", "DELIVERY", "INVENTORY", "POS", "CASHFLOW", "MOYSKLAD", "ANALYTICS"] },
-  PRO: { label: "Pro", price: 1800000, clients: "UNLIMITED", users: "UNLIMITED", modules: MODULES.map((m) => m.code) },
-  CUSTOM: { label: "Custom", price: 0, clients: "100", users: "3", modules: ["CRM"] },
-};
-
-const META_PREFIXES = ["LIMIT_CLIENTS_", "LIMIT_USERS_", "MONTHLY_PRICE_", "LAST_PAYMENT_", "NEXT_PAYMENT_"];
-
-function cleanModules(modules?: string[]) {
-  return (modules || []).filter((m) => !META_PREFIXES.some((p) => m.startsWith(p)));
-}
-function getMeta(modules: string[] | undefined, prefix: string, fallback = "") {
-  return (modules || []).find((m) => m.startsWith(prefix))?.slice(prefix.length) || fallback;
-}
-function withMeta(modules: string[], form: FormState) {
-  return [
-    ...cleanModules(modules),
-    `LIMIT_CLIENTS_${form.clientLimit || "UNLIMITED"}`,
-    `LIMIT_USERS_${form.userLimit || "UNLIMITED"}`,
-    `MONTHLY_PRICE_${String(form.monthlyPrice || 0)}`,
-    ...(form.lastPaymentDate ? [`LAST_PAYMENT_${form.lastPaymentDate}`] : []),
-    ...(form.nextPaymentDate ? [`NEXT_PAYMENT_${form.nextPaymentDate}`] : []),
-  ];
-}
-function money(value: any) {
-  const n = Number(value || 0);
-  return `${new Intl.NumberFormat("ru-RU").format(n)} UZS`;
-}
-function todayPlus(days: number) {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
-}
-function formatPhone(value: string) {
-  let digits = value.replace(/\D/g, "");
-  if (digits.startsWith("998")) digits = digits.slice(3);
-  digits = digits.slice(0, 9);
-  return digits ? `+998${digits}` : "";
-}
-
-type FormState = {
-  companyName: string;
-  companyPhone: string;
-  ownerName: string;
-  ownerPhone: string;
-  ownerPassword: string;
-  plan: Plan;
-  status: Status;
-  monthlyPrice: number;
-  clientLimit: string;
-  userLimit: string;
-  lastPaymentDate: string;
-  nextPaymentDate: string;
-  modules: string[];
-};
-
-const emptyForm: FormState = {
-  companyName: "",
-  companyPhone: "",
+const emptyForm = {
+  name: "",
+  phone: "",
   ownerName: "",
   ownerPhone: "",
   ownerPassword: "",
-  plan: "STARTER",
-  status: "TRIAL",
-  monthlyPrice: PLAN_PRESETS.STARTER.price,
-  clientLimit: PLAN_PRESETS.STARTER.clients,
-  userLimit: PLAN_PRESETS.STARTER.users,
-  lastPaymentDate: "",
-  nextPaymentDate: todayPlus(30),
-  modules: PLAN_PRESETS.STARTER.modules,
+  status: "TRIAL" as CompanyStatus,
+  planId: "",
+  enabledModules: [] as ModuleCode[],
+  monthlyPriceUZS: 0,
+  clientLimit: "",
+  userLimit: "",
+  productLimit: "",
+  warehouseLimit: "",
+  lastPaymentAt: "",
+  nextPaymentAt: "",
+  paymentDay: "",
 };
 
+function limitInput(value: string) {
+  return value.trim().toLowerCase() === "unlimited" ? "" : value;
+}
+
 export default function SuperAdminPage() {
-  const [allowed, setAllowed] = useState(false);
-  const [checking, setChecking] = useState(true);
   const [companies, setCompanies] = useState<Company[]>([]);
+  const [plans, setPlans] = useState<Plan[]>([]);
   const [query, setQuery] = useState("");
+  const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [modal, setModal] = useState<"create" | "edit" | null>(null);
+  const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Company | null>(null);
-  const [form, setForm] = useState<FormState>(emptyForm);
+  const [form, setForm] = useState(emptyForm);
 
   useEffect(() => {
-    try {
-      const user = JSON.parse(localStorage.getItem("operix_user") || "{}");
-      if (user?.role !== "SUPER_ADMIN") {
-        window.location.href = "/";
-        return;
-      }
-      setAllowed(true);
-      loadCompanies();
-    } finally {
-      setChecking(false);
-    }
+    load();
   }, []);
 
-  async function loadCompanies() {
+  async function load() {
+    setLoading(true);
     try {
-      setLoading(true);
-      setMessage("");
-      const data = await apiJson<Company[]>("/companies");
-      setCompanies(Array.isArray(data) ? data : []);
-    } catch (e: any) {
-      setMessage(e?.message || "Kompaniyalarni olishda xatolik");
+      const [planData, companyData] = await Promise.all([
+        apiJson<Plan[]>("/super-admin/plans"),
+        apiJson<Company[]>("/super-admin/companies"),
+      ]);
+      setPlans(Array.isArray(planData) ? planData : []);
+      setCompanies(Array.isArray(companyData) ? companyData : []);
+    } catch (err: any) {
+      setMessage(err.message || "Yuklashda xatolik");
     } finally {
       setLoading(false);
     }
   }
 
-  const stats = useMemo(() => {
-    return {
-      total: companies.length,
-      active: companies.filter((c) => c.status === "ACTIVE").length,
-      trial: companies.filter((c) => c.status === "TRIAL").length,
-      blocked: companies.filter((c) => c.status === "BLOCKED").length,
-    };
-  }, [companies]);
-
   const filtered = useMemo(() => {
-    const q = query.toLowerCase().trim();
-    if (!q) return companies;
-    return companies.filter((c) => `${c.name} ${c.phone || ""} ${c.subscriptionPlan || ""}`.toLowerCase().includes(q));
+    const term = query.toLowerCase().trim();
+    if (!term) return companies;
+    return companies.filter((c) => `${c.name} ${c.phone || ""} ${c.subscriptionPlan || ""}`.toLowerCase().includes(term));
   }, [companies, query]);
 
-  function applyPlan(plan: Plan) {
-    const p = PLAN_PRESETS[plan];
-    setForm((f) => ({ ...f, plan, monthlyPrice: p.price, clientLimit: p.clients, userLimit: p.users, modules: p.modules }));
+  const totals = useMemo(() => ({
+    all: companies.length,
+    active: companies.filter((c) => c.status === "ACTIVE").length,
+    trial: companies.filter((c) => c.status === "TRIAL").length,
+    blocked: companies.filter((c) => c.status === "BLOCKED").length,
+    monthly: companies.reduce((s, c) => s + Number(c.monthlyPriceUZS || c.plan?.monthlyPriceUZS || 0), 0),
+  }), [companies]);
+
+  function selectPlan(planId: string) {
+    const plan = plans.find((p) => p.id === planId);
+    setForm((prev) => ({
+      ...prev,
+      planId,
+      enabledModules: plan?.modules || [],
+      monthlyPriceUZS: plan?.monthlyPriceUZS || 0,
+      clientLimit: plan?.clientLimit == null ? "" : String(plan.clientLimit),
+      userLimit: plan?.userLimit == null ? "" : String(plan.userLimit),
+      productLimit: plan?.productLimit == null ? "" : String(plan.productLimit),
+      warehouseLimit: plan?.warehouseLimit == null ? "" : String(plan.warehouseLimit),
+    }));
+  }
+
+  function toggleModule(code: ModuleCode) {
+    setForm((prev) => ({
+      ...prev,
+      enabledModules: prev.enabledModules.includes(code)
+        ? prev.enabledModules.filter((item) => item !== code)
+        : [...prev.enabledModules, code],
+    }));
   }
 
   function openCreate() {
     setEditing(null);
-    setForm(emptyForm);
-    setModal("create");
-    setMessage("");
+    const firstPlan = plans.find((p) => p.code === "START") || plans[0];
+    setForm({ ...emptyForm, planId: firstPlan?.id || "" });
+    setOpen(true);
+    setTimeout(() => firstPlan && selectPlan(firstPlan.id), 0);
   }
 
   function openEdit(company: Company) {
-    const modules = company.enabledModules || [];
-    const plan = (company.subscriptionPlan || "STARTER") as Plan;
     setEditing(company);
     setForm({
-      companyName: company.name,
-      companyPhone: company.phone || "",
+      name: company.name || "",
+      phone: company.phone || "",
       ownerName: "",
       ownerPhone: "",
       ownerPassword: "",
-      plan: ["STARTER", "BUSINESS", "PRO", "CUSTOM"].includes(plan) ? plan : "CUSTOM",
       status: company.status || "TRIAL",
-      monthlyPrice: Number(getMeta(modules, "MONTHLY_PRICE_", String(PLAN_PRESETS.STARTER.price))),
-      clientLimit: getMeta(modules, "LIMIT_CLIENTS_", PLAN_PRESETS.STARTER.clients),
-      userLimit: getMeta(modules, "LIMIT_USERS_", PLAN_PRESETS.STARTER.users),
-      lastPaymentDate: getMeta(modules, "LAST_PAYMENT_", ""),
-      nextPaymentDate: getMeta(modules, "NEXT_PAYMENT_", ""),
-      modules: cleanModules(modules).length ? cleanModules(modules) : PLAN_PRESETS.STARTER.modules,
+      planId: company.plan?.id || "",
+      enabledModules: normalizeModules(company.enabledModules),
+      monthlyPriceUZS: Number(company.monthlyPriceUZS || company.plan?.monthlyPriceUZS || 0),
+      clientLimit: company.clientLimit == null ? "" : String(company.clientLimit),
+      userLimit: company.userLimit == null ? "" : String(company.userLimit),
+      productLimit: company.productLimit == null ? "" : String(company.productLimit),
+      warehouseLimit: company.warehouseLimit == null ? "" : String(company.warehouseLimit),
+      lastPaymentAt: company.lastPaymentAt ? company.lastPaymentAt.slice(0, 10) : "",
+      nextPaymentAt: company.nextPaymentAt ? company.nextPaymentAt.slice(0, 10) : "",
+      paymentDay: company.paymentDay ? String(company.paymentDay) : "",
     });
-    setModal("edit");
+    setOpen(true);
   }
 
-  function toggleModule(code: string) {
-    setForm((f) => ({ ...f, modules: f.modules.includes(code) ? f.modules.filter((m) => m !== code) : [...f.modules, code] }));
-  }
+  async function saveCompany() {
+    setMessage("");
+    const body = {
+      name: form.name,
+      phone: form.phone || null,
+      status: form.status,
+      planId: form.planId || null,
+      enabledModules: form.enabledModules,
+      monthlyPriceUZS: Number(form.monthlyPriceUZS || 0),
+      clientLimit: limitInput(form.clientLimit),
+      userLimit: limitInput(form.userLimit),
+      productLimit: limitInput(form.productLimit),
+      warehouseLimit: limitInput(form.warehouseLimit),
+      lastPaymentAt: form.lastPaymentAt || null,
+      nextPaymentAt: form.nextPaymentAt || null,
+      paymentDay: form.paymentDay || null,
+    };
 
-  async function save() {
-    try {
-      setLoading(true);
-      setMessage("");
-      const enabledModules = withMeta(form.modules, form);
-      if (modal === "create") {
-        if (!form.companyName || !form.ownerName || !form.ownerPhone || !form.ownerPassword) {
-          setMessage("Kompaniya, owner ismi, telefon va parol majburiy");
-          return;
-        }
-        await apiJson("/auth/create-company-owner", {
-          method: "POST",
-          body: JSON.stringify({
-            companyName: form.companyName,
-            companyPhone: form.companyPhone || undefined,
-            fullName: form.ownerName,
-            phone: formatPhone(form.ownerPhone),
-            password: form.ownerPassword,
-            status: form.status,
-            subscriptionPlan: form.plan,
-            enabledModules,
-          }),
-        });
-      } else if (editing) {
-        await apiJson(`/companies/${editing.id}`, {
-          method: "PATCH",
-          body: JSON.stringify({
-            name: form.companyName,
-            phone: form.companyPhone || null,
-            status: form.status,
-            subscriptionPlan: form.plan,
-            enabledModules,
-          }),
-        });
-      }
-      setModal(null);
-      await loadCompanies();
-    } catch (e: any) {
-      setMessage(e?.message || "Saqlashda xatolik");
-    } finally {
-      setLoading(false);
+    if (editing) {
+      await apiJson(`/super-admin/companies/${editing.id}`, { method: "PATCH", body: JSON.stringify(body) });
+      setMessage("Kompaniya yangilandi");
+    } else {
+      await apiJson("/super-admin/companies", {
+        method: "POST",
+        body: JSON.stringify({ ...body, ownerName: form.ownerName, ownerPhone: form.ownerPhone, ownerPassword: form.ownerPassword }),
+      });
+      setMessage("Kompaniya yaratildi");
     }
+
+    setOpen(false);
+    await load();
   }
 
-  async function quickStatus(company: Company, status: Status) {
-    await apiJson(`/companies/${company.id}`, { method: "PATCH", body: JSON.stringify({ status }) });
-    await loadCompanies();
+  async function addPayment(company: Company) {
+    const amount = prompt("To‘lov summasi UZS", String(company.monthlyPriceUZS || company.plan?.monthlyPriceUZS || 0));
+    if (!amount) return;
+    const next = prompt("Keyingi to‘lov sanasi YYYY-MM-DD", company.nextPaymentAt?.slice(0, 10) || "");
+    await apiJson(`/super-admin/companies/${company.id}/payments`, {
+      method: "POST",
+      body: JSON.stringify({ amountUZS: Number(amount), periodTo: next || null, method: "CASH" }),
+    });
+    await load();
   }
-
-  if (checking) return <div className="flex min-h-screen items-center justify-center bg-slate-50 text-slate-500">Tekshirilmoqda...</div>;
-  if (!allowed) return null;
 
   return (
-    <main className="min-h-screen bg-slate-50 px-8 py-7 text-slate-950">
-      <header className="mb-8 flex items-start justify-between gap-5">
-        <div>
-          <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-bold text-blue-700"><ShieldCheck size={17}/> Operix Super Admin</div>
-          <h1 className="text-[42px] font-black tracking-[-0.06em]">Platforma boshqaruvi</h1>
-          <p className="mt-2 text-[15px] font-semibold text-slate-500">Kompaniyalar, tariflar, modullar, limitlar va oylik to‘lov nazorati.</p>
-        </div>
-        <button onClick={logout} className="rounded-2xl border border-red-200 bg-white px-5 py-3 text-sm font-black text-red-600 hover:bg-red-50"><LogOut className="mr-2 inline" size={17}/> Chiqish</button>
-      </header>
+    <SuperAdminShell title="Kompaniyalar" subtitle="Tarif, modul, limit, status va oylik to‘lovlarni boshqarish">
+      <div className="mb-5 grid grid-cols-5 gap-4">
+        <Metric title="Jami" value={totals.all} />
+        <Metric title="Active" value={totals.active} />
+        <Metric title="Trial" value={totals.trial} />
+        <Metric title="Blocked" value={totals.blocked} />
+        <Metric title="MRR" value={formatUZS(totals.monthly)} />
+      </div>
 
-      <section className="grid grid-cols-4 gap-4">
-        <Stat title="Kompaniyalar" value={stats.total} icon={<Building2/>}/>
-        <Stat title="Active" value={stats.active} icon={<CheckCircle2/>}/>
-        <Stat title="Trial" value={stats.trial} icon={<CircleDollarSign/>}/>
-        <Stat title="Blocked" value={stats.blocked} icon={<Lock/>}/>
-      </section>
-
-      <section className="mt-5 rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="mb-5 flex items-center justify-between gap-4">
-          <div>
-            <h2 className="text-2xl font-black tracking-[-0.04em]">Kompaniyalar</h2>
-            <p className="mt-1 text-sm font-semibold text-slate-400">Har bir kompaniyaga alohida plan, modul va limit belgilanadi.</p>
+      <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="mb-6 flex items-center justify-between gap-4">
+          <div className="flex min-w-[420px] items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+            <Search size={18} className="text-slate-400" />
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Kompaniya qidirish..." className="w-full bg-transparent text-sm font-semibold outline-none" />
           </div>
-          <button onClick={openCreate} className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-black text-white hover:bg-blue-700"><Plus className="mr-2 inline" size={17}/> Kompaniya qo‘shish</button>
+          <div className="flex gap-3">
+            <button onClick={load} className="rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50"><RefreshCw size={16} className="mr-2 inline" />Yangilash</button>
+            <button onClick={openCreate} className="rounded-2xl bg-sky-500 px-5 py-3 text-sm font-bold text-white hover:bg-sky-600"><Plus size={17} className="mr-2 inline" />Kompaniya yaratish</button>
+          </div>
         </div>
 
-        <div className="mb-4 flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-          <Search size={18} className="text-slate-400" />
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Kompaniya, telefon yoki plan bo‘yicha qidirish" className="w-full bg-transparent text-sm font-semibold outline-none" />
-        </div>
-
-        {message && <div className="mb-4 rounded-2xl bg-blue-50 px-4 py-3 text-sm font-bold text-blue-700">{message}</div>}
+        {message ? <div className="mb-4 rounded-2xl bg-sky-50 px-4 py-3 text-sm font-bold text-sky-700">{message}</div> : null}
 
         <div className="overflow-hidden rounded-2xl border border-slate-100">
-          <div className="grid grid-cols-[1.4fr_.8fr_.8fr_.7fr_.8fr_.7fr] bg-slate-50 px-5 py-4 text-xs font-black uppercase tracking-[0.12em] text-slate-400">
-            <div>Kompaniya</div><div>Plan / Narx</div><div>Limit</div><div>To‘lov</div><div>Status</div><div className="text-right">Amal</div>
+          <div className="grid grid-cols-[1.35fr_0.8fr_1.3fr_1fr_1fr_160px] bg-slate-50 px-5 py-3 text-[12px] font-bold uppercase tracking-[0.08em] text-slate-400">
+            <span>Kompaniya</span><span>Status</span><span>Plan / Modullar</span><span>Limitlar</span><span>To‘lov</span><span className="text-right">Amal</span>
           </div>
-          {loading ? <div className="p-6 text-sm font-bold text-slate-400">Yuklanmoqda...</div> : filtered.length === 0 ? <div className="p-6 text-sm font-bold text-slate-400">Kompaniya topilmadi</div> : filtered.map((c) => {
-            const modules = c.enabledModules || [];
-            const clientLimit = getMeta(modules, "LIMIT_CLIENTS_", "—");
-            const userLimit = getMeta(modules, "LIMIT_USERS_", "—");
-            const price = getMeta(modules, "MONTHLY_PRICE_", "0");
-            const nextPay = getMeta(modules, "NEXT_PAYMENT_", "—");
-            return <div key={c.id} className="grid grid-cols-[1.4fr_.8fr_.8fr_.7fr_.8fr_.7fr] items-center border-t border-slate-100 px-5 py-4 text-sm">
-              <div><p className="font-black text-slate-900">{c.name}</p><p className="mt-1 text-xs font-bold text-slate-400">{c.phone || "Telefon yo‘q"} · user: {c._stats?.usersCount ?? c.users?.length ?? 0} · client: {c._stats?.clientsCount ?? 0}</p></div>
-              <div><p className="font-black">{c.subscriptionPlan || "STARTER"}</p><p className="text-xs font-bold text-slate-400">{money(price)}</p></div>
-              <div className="text-xs font-bold text-slate-500"><p>Client: {clientLimit}</p><p>User: {userLimit}</p></div>
-              <div className="text-xs font-bold text-slate-500">{nextPay}</div>
-              <div><select value={c.status || "TRIAL"} onChange={(e) => quickStatus(c, e.target.value as Status)} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black outline-none"><option>TRIAL</option><option>ACTIVE</option><option>BLOCKED</option></select></div>
-              <div className="text-right"><button onClick={() => openEdit(c)} className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-black hover:bg-slate-50"><SlidersHorizontal className="mr-1 inline" size={14}/> Boshqarish</button></div>
-            </div>;
+          {loading ? <div className="p-6 text-sm font-semibold text-slate-400">Yuklanmoqda...</div> : filtered.map((c) => {
+            const modules = normalizeModules(c.enabledModules);
+            return (
+              <div key={c.id} className="grid grid-cols-[1.35fr_0.8fr_1.3fr_1fr_1fr_160px] items-center border-t border-slate-100 px-5 py-4">
+                <div>
+                  <p className="text-[15px] font-bold text-slate-950">{c.name}</p>
+                  <p className="mt-1 text-[12px] font-semibold text-slate-400">{c.phone || "Telefon yo‘q"}</p>
+                </div>
+                <StatusBadge status={c.status} />
+                <div>
+                  <p className="text-[13px] font-bold text-slate-800">{c.plan?.name || c.subscriptionPlan || "Custom"}</p>
+                  <p className="mt-1 line-clamp-1 text-[12px] font-semibold text-slate-400">{modules.slice(0, 5).map((m) => moduleLabels[m]?.uz || m).join(" • ")}</p>
+                </div>
+                <div className="text-[12px] font-bold leading-6 text-slate-500">
+                  <p>Client: {c._count?.clients || 0}/{formatLimit(c.clientLimit)}</p>
+                  <p>User: {c._count?.users || 0}/{formatLimit(c.userLimit)}</p>
+                </div>
+                <div className="text-[12px] font-bold leading-6 text-slate-500">
+                  <p>{formatUZS(c.monthlyPriceUZS || c.plan?.monthlyPriceUZS)}</p>
+                  <p>Next: {formatDate(c.nextPaymentAt)}</p>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <button onClick={() => addPayment(c)} className="rounded-xl border border-emerald-200 p-2 text-emerald-600 hover:bg-emerald-50"><CreditCard size={16} /></button>
+                  <button onClick={() => openEdit(c)} className="rounded-xl border border-slate-200 px-3 py-2 text-[12px] font-bold text-slate-700 hover:bg-slate-50">Edit</button>
+                </div>
+              </div>
+            );
           })}
         </div>
-      </section>
+      </div>
 
-      {modal && <Modal title={modal === "create" ? "Yangi kompaniya" : "Kompaniyani boshqarish"} onClose={() => setModal(null)}>
-        <div className="grid grid-cols-2 gap-4">
-          <Input label="Kompaniya nomi" value={form.companyName} onChange={(v) => setForm({...form, companyName: v})}/>
-          <Input label="Kompaniya telefoni" value={form.companyPhone} onChange={(v) => setForm({...form, companyPhone: v})}/>
-          {modal === "create" && <><Input label="Owner ismi" value={form.ownerName} onChange={(v) => setForm({...form, ownerName: v})}/><Input label="Owner telefon" value={form.ownerPhone} onChange={(v) => setForm({...form, ownerPhone: v})}/><Input label="Owner parol" value={form.ownerPassword} onChange={(v) => setForm({...form, ownerPassword: v})}/></>}
-          <label className="block"><span className="text-xs font-black uppercase text-slate-400">Status</span><select value={form.status} onChange={(e) => setForm({...form, status: e.target.value as Status})} className="mt-2 h-12 w-full rounded-2xl border border-slate-200 px-4 font-bold outline-none"><option>TRIAL</option><option>ACTIVE</option><option>BLOCKED</option></select></label>
-          <label className="block"><span className="text-xs font-black uppercase text-slate-400">Plan</span><select value={form.plan} onChange={(e) => applyPlan(e.target.value as Plan)} className="mt-2 h-12 w-full rounded-2xl border border-slate-200 px-4 font-bold outline-none"><option>STARTER</option><option>BUSINESS</option><option>PRO</option><option>CUSTOM</option></select></label>
-          <Input label="Oylik narx UZS" value={String(form.monthlyPrice)} onChange={(v) => setForm({...form, monthlyPrice: Number(v.replace(/\D/g, "") || 0), plan: form.plan === "CUSTOM" ? "CUSTOM" : form.plan})}/>
-          <Input label="Mijoz limiti" value={form.clientLimit} onChange={(v) => setForm({...form, clientLimit: v, plan: "CUSTOM"})}/>
-          <Input label="User limiti" value={form.userLimit} onChange={(v) => setForm({...form, userLimit: v, plan: "CUSTOM"})}/>
-          <Input label="Oxirgi to‘lov sanasi" type="date" value={form.lastPaymentDate} onChange={(v) => setForm({...form, lastPaymentDate: v})}/>
-          <Input label="Keyingi to‘lov sanasi" type="date" value={form.nextPaymentDate} onChange={(v) => setForm({...form, nextPaymentDate: v})}/>
+      {open ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-6 backdrop-blur-sm">
+          <div className="max-h-[92vh] w-full max-w-[1040px] overflow-auto rounded-[30px] bg-white p-7 shadow-2xl">
+            <div className="mb-6 flex items-start justify-between">
+              <div>
+                <h2 className="text-[26px] font-bold tracking-[-0.04em]">{editing ? "Kompaniyani tahrirlash" : "Yangi kompaniya"}</h2>
+                <p className="mt-1 text-sm font-semibold text-slate-400">Plan, modul va limitlarni bitta oynada boshqarasiz</p>
+              </div>
+              <button onClick={() => setOpen(false)} className="rounded-2xl border border-slate-200 p-3 text-slate-500"><XCircle size={20} /></button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-5">
+              <Field label="Kompaniya nomi" value={form.name} onChange={(v) => setForm({ ...form, name: v })} />
+              <Field label="Kompaniya telefoni" value={form.phone} onChange={(v) => setForm({ ...form, phone: v })} />
+              {!editing ? <Field label="Owner ismi" value={form.ownerName} onChange={(v) => setForm({ ...form, ownerName: v })} /> : null}
+              {!editing ? <Field label="Owner telefoni" value={form.ownerPhone} onChange={(v) => setForm({ ...form, ownerPhone: v })} /> : null}
+              {!editing ? <Field label="Owner paroli" value={form.ownerPassword} onChange={(v) => setForm({ ...form, ownerPassword: v })} /> : null}
+
+              <label className="block">
+                <span className="mb-2 block text-[12px] font-bold uppercase tracking-[0.08em] text-slate-400">Status</span>
+                <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as CompanyStatus })} className="h-13 w-full rounded-2xl border border-slate-200 px-4 text-sm font-bold outline-none">
+                  {statuses.map((s) => <option key={s}>{s}</option>)}
+                </select>
+              </label>
+
+              <label className="block">
+                <span className="mb-2 block text-[12px] font-bold uppercase tracking-[0.08em] text-slate-400">Tarif</span>
+                <select value={form.planId} onChange={(e) => selectPlan(e.target.value)} className="h-13 w-full rounded-2xl border border-slate-200 px-4 text-sm font-bold outline-none">
+                  <option value="">Custom</option>
+                  {plans.map((p) => <option key={p.id} value={p.id}>{p.name} — {formatUZS(p.monthlyPriceUZS)}</option>)}
+                </select>
+              </label>
+
+              <Field label="Oylik narx UZS" type="number" value={String(form.monthlyPriceUZS)} onChange={(v) => setForm({ ...form, monthlyPriceUZS: Number(v) })} />
+              <Field label="Client limit" value={form.clientLimit} placeholder="bo‘sh = unlimited" onChange={(v) => setForm({ ...form, clientLimit: v })} />
+              <Field label="User limit" value={form.userLimit} placeholder="bo‘sh = unlimited" onChange={(v) => setForm({ ...form, userLimit: v })} />
+              <Field label="Product limit" value={form.productLimit} placeholder="bo‘sh = unlimited" onChange={(v) => setForm({ ...form, productLimit: v })} />
+              <Field label="Warehouse limit" value={form.warehouseLimit} placeholder="bo‘sh = unlimited" onChange={(v) => setForm({ ...form, warehouseLimit: v })} />
+              <Field label="Payment day" value={form.paymentDay} placeholder="masalan 5" onChange={(v) => setForm({ ...form, paymentDay: v })} />
+              <Field label="Oxirgi to‘lov" type="date" value={form.lastPaymentAt} onChange={(v) => setForm({ ...form, lastPaymentAt: v })} />
+              <Field label="Keyingi to‘lov" type="date" value={form.nextPaymentAt} onChange={(v) => setForm({ ...form, nextPaymentAt: v })} />
+            </div>
+
+            <div className="mt-6">
+              <p className="mb-3 text-[12px] font-bold uppercase tracking-[0.08em] text-slate-400">Modullar</p>
+              <div className="grid grid-cols-3 gap-3">
+                {moduleCodes.map((code) => {
+                  const active = form.enabledModules.includes(code);
+                  return (
+                    <button key={code} onClick={() => toggleModule(code)} className={`rounded-2xl border px-4 py-3 text-left transition ${active ? "border-sky-300 bg-sky-50" : "border-slate-200 bg-white hover:bg-slate-50"}`}>
+                      <p className="flex items-center gap-2 text-[13px] font-bold text-slate-900">{active ? <CheckCircle2 size={16} className="text-sky-600" /> : null}{moduleLabels[code].uz}</p>
+                      <p className="mt-1 text-[11px] font-semibold text-slate-400">{moduleLabels[code].desc}</p>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="mt-7 flex justify-end gap-3">
+              <button onClick={() => setOpen(false)} className="rounded-2xl border border-slate-200 px-5 py-3 text-sm font-bold text-slate-600">Bekor qilish</button>
+              <button onClick={saveCompany} className="rounded-2xl bg-sky-500 px-5 py-3 text-sm font-bold text-white hover:bg-sky-600"><Save size={16} className="mr-2 inline" />Saqlash</button>
+            </div>
+          </div>
         </div>
-        <div className="mt-5"><p className="mb-3 text-xs font-black uppercase tracking-[0.12em] text-slate-400">Modullar</p><div className="grid grid-cols-2 gap-3">{MODULES.map((m) => <button key={m.code} onClick={() => toggleModule(m.code)} className={`rounded-2xl border p-4 text-left transition ${form.modules.includes(m.code) ? "border-blue-300 bg-blue-50" : "border-slate-200 bg-white hover:bg-slate-50"}`}><p className="font-black">{m.label}</p><p className="mt-1 text-xs font-semibold text-slate-500">{m.desc}</p></button>)}</div></div>
-        <div className="mt-6 flex justify-end gap-3"><button onClick={() => setModal(null)} className="rounded-2xl border border-slate-200 px-5 py-3 font-black">Bekor qilish</button><button onClick={save} className="rounded-2xl bg-blue-600 px-6 py-3 font-black text-white">Saqlash</button></div>
-      </Modal>}
-    </main>
+      ) : null}
+    </SuperAdminShell>
   );
 }
 
-function Stat({ title, value, icon }: { title: string; value: any; icon: any }) {
-  return <div className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm"><div className="mb-4 flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">{icon}</div><p className="text-sm font-black text-slate-400">{title}</p><p className="mt-3 text-4xl font-black tracking-[-0.06em]">{value}</p></div>;
+function Metric({ title, value }: { title: string; value: any }) {
+  return <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm"><p className="text-[12px] font-bold uppercase tracking-[0.1em] text-slate-400">{title}</p><p className="mt-3 text-[25px] font-bold tracking-[-0.04em] text-slate-950">{value}</p></div>;
 }
-function Input({ label, value, onChange, type = "text" }: { label: string; value: string; onChange: (v: string) => void; type?: string }) {
-  return <label className="block"><span className="text-xs font-black uppercase text-slate-400">{label}</span><input type={type} value={value} onChange={(e) => onChange(e.target.value)} className="mt-2 h-12 w-full rounded-2xl border border-slate-200 px-4 font-bold outline-none focus:border-blue-400" /></label>;
+
+function StatusBadge({ status }: { status: string }) {
+  const cls = status === "ACTIVE" ? "bg-emerald-50 text-emerald-700" : status === "BLOCKED" ? "bg-red-50 text-red-700" : status === "EXPIRED" ? "bg-orange-50 text-orange-700" : "bg-sky-50 text-sky-700";
+  return <span className={`w-fit rounded-full px-3 py-1.5 text-[11px] font-bold ${cls}`}>{status}</span>;
 }
-function Modal({ title, children, onClose }: { title: string; children: any; onClose: () => void }) {
-  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-6"><div className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-[30px] bg-white p-7 shadow-2xl"><div className="mb-6 flex items-center justify-between"><h2 className="text-3xl font-black tracking-[-0.05em]">{title}</h2><button onClick={onClose} className="rounded-2xl border border-slate-200 p-3 hover:bg-slate-50"><X size={18}/></button></div>{children}</div></div>;
+
+function Field({ label, value, onChange, type = "text", placeholder = "" }: { label: string; value: string; onChange: (value: string) => void; type?: string; placeholder?: string }) {
+  return <label className="block"><span className="mb-2 block text-[12px] font-bold uppercase tracking-[0.08em] text-slate-400">{label}</span><input type={type} value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} className="h-13 w-full rounded-2xl border border-slate-200 px-4 text-sm font-bold outline-none focus:border-sky-400 focus:ring-4 focus:ring-sky-50" /></label>;
 }
