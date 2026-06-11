@@ -3,8 +3,20 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  Home, Users, Wallet, CreditCard, BarChart3, Settings,
-  Truck, Package, Warehouse, QrCode, ArrowLeftRight, Banknote, ShoppingCart
+  Home,
+  Users,
+  Wallet,
+  CreditCard,
+  BarChart3,
+  Settings,
+  Truck,
+  Package,
+  Warehouse,
+  QrCode,
+  ArrowLeftRight,
+  Banknote,
+  ShoppingCart,
+  LineChart,
 } from "lucide-react";
 
 const groups = [
@@ -19,8 +31,9 @@ const groups = [
     ],
   },
   {
-    title: "BUSINESSMAN",
+    title: "BUSINESS",
     items: [
+      { href: "/analytics", label: "Analytics", icon: LineChart },
       { href: "/delivery", label: "Delivery", icon: Truck },
       { href: "/inventory", label: "Sklad", icon: Package },
       { href: "/warehouses", label: "Skladlar", icon: Warehouse },
@@ -38,6 +51,16 @@ const groups = [
   },
 ];
 
+function logout() {
+  if (typeof window === "undefined") return;
+  localStorage.removeItem("operix_token");
+  localStorage.removeItem("token");
+  localStorage.removeItem("operix_user");
+  localStorage.removeItem("operix_company");
+  document.cookie = "operix_token=; path=/; max-age=0; SameSite=Lax";
+  window.location.href = "/login";
+}
+
 export default function Sidebar() {
   const pathname = usePathname();
 
@@ -49,7 +72,7 @@ export default function Sidebar() {
         </div>
         <div>
           <h1 className="text-[17px] font-semibold tracking-[-0.03em] text-slate-950">Operix</h1>
-          <p className="text-[11px] font-bold text-slate-400">PRO</p>
+          <p className="text-[11px] font-bold text-slate-400">BUSINESS OS</p>
         </div>
       </div>
 
@@ -79,7 +102,7 @@ export default function Sidebar() {
         ))}
       </nav>
 
-      <div className="mt-5 border-t border-slate-100 pt-4">
+      <div className="mt-5 space-y-2 border-t border-slate-100 pt-4">
         <Link
           href="/settings"
           className={`flex items-center gap-3 rounded-2xl px-3 py-3 text-[14px] font-semibold transition ${
@@ -89,6 +112,12 @@ export default function Sidebar() {
           <Settings size={17} strokeWidth={pathname === "/settings" ? 2.2 : 1.8} className={pathname === "/settings" ? "text-white" : "text-slate-500"} />
           Sozlamalar
         </Link>
+        <button
+          onClick={logout}
+          className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-[14px] font-bold text-red-600 transition hover:bg-red-50"
+        >
+          Chiqish
+        </button>
       </div>
     </aside>
   );

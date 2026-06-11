@@ -1,9 +1,21 @@
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
+function getCookie(name: string) {
+  if (typeof document === "undefined") return null;
+  const value = `; ${document.cookie}`;
+  const parts = value.split(`; ${name}=`);
+  if (parts.length === 2) return parts.pop()?.split(";").shift() || null;
+  return null;
+}
+
 function getToken() {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem("token");
+  return (
+    localStorage.getItem("operix_token") ||
+    localStorage.getItem("token") ||
+    getCookie("operix_token")
+  );
 }
 
 function isListPath(path: string) {
@@ -83,3 +95,17 @@ export function asArray<T = any>(value: any): T[] {
 }
 
 export const api = apiFetch;
+
+export function logout() {
+  if (typeof window === "undefined") return;
+
+  localStorage.removeItem("operix_token");
+  localStorage.removeItem("operix_user");
+  localStorage.removeItem("operix_company");
+  localStorage.removeItem("token");
+
+  document.cookie =
+    "operix_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax";
+
+  window.location.href = "/login";
+}

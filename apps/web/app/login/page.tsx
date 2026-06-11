@@ -3,98 +3,103 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-function onlyDigits(value: string) {
-  return value.replace(/\D/g, "");
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+
+function formatPhone(value: string) {
+  let v = value.replace(/[^\d+]/g, "");
+
+  if (!v.startsWith("+998")) {
+    v = v.replace(/\D/g, "");
+    if (v.startsWith("998")) v = "+" + v;
+    else v = "+998" + v.replace(/^998/, "");
+  }
+
+  return v.slice(0, 13);
 }
 
-function formatUzPhone(value: string) {
-  let digits = onlyDigits(value);
-
-  if (digits.startsWith("998")) digits = digits.slice(3);
-  if (digits.startsWith("8")) digits = digits.slice(1);
-
-  digits = digits.slice(0, 9);
-
-  const operator = digits.slice(0, 2);
-  const first = digits.slice(2, 5);
-  const second = digits.slice(5, 7);
-  const third = digits.slice(7, 9);
-
-  let result = "+998";
-  if (operator) result += ` ${operator}`;
-  if (first) result += ` ${first}`;
-  if (second) result += ` ${second}`;
-  if (third) result += ` ${third}`;
-
-  return result;
+function setCookie(name: string, value: string, days = 30) {
+  const maxAge = days * 24 * 60 * 60;
+  document.cookie = `${name}=${value}; path=/; max-age=${maxAge}; SameSite=Lax`;
 }
 
 export default function LoginPage() {
   const router = useRouter();
 
-  const [phone, setPhone] = useState("");
+  const [phone, setPhone] = useState("+998");
   const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  async function login() {
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+
     try {
       setLoading(true);
-      setError("");
 
-      const res = await fetch("http://localhost:4000/auth/login", {
+      const res = await fetch(`${API_URL}/auth/login`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          phone,
-          password,
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone, password }),
       });
 
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.message || "Login xatosi");
+        throw new Error(data?.message || "Login yoki parol noto‘g‘ri");
       }
 
-      localStorage.setItem("token", data.token);
-      localStorage.setItem("user", JSON.stringify(data.user));
-      document.cookie = `operix_token=${data.token}; path=/; max-age=${60 * 60 * 24 * 7}`;
+      const token = data.token || data.accessToken;
 
-      router.push("/");
-    } catch (err: any) {
-      setError(err.message || "Login xatosi");
+      if (!token) {
+        throw new Error("Token kelmadi. Backend auth response tekshirilsin.");
+      }
+
+      localStorage.setItem("operix_token", token);
+      localStorage.setItem("token", token);
+      localStorage.setItem("operix_user", JSON.stringify(data.user || {}));
+      localStorage.setItem("operix_company", JSON.stringify(data.company || {}));
+
+      setCookie("operix_token", token);
+
+      const role = data.user?.role;
+
+      if (role === "SUPER_ADMIN") {
+        router.replace("/super-admin");
+      } else {
+        router.replace("/");
+      }
+
+      router.refresh();
+    } catch (e: any) {
+      setError(e?.message || "Xatolik yuz berdi");
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#F8F9FB] px-6">
-      <div className="w-full max-w-md rounded-[28px] border border-slate-200 bg-white p-8 shadow-sm">
-        <div className="mb-8">
-          <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-[#3B82F6]/10">
-            <div className="h-5 w-5 rounded-md bg-[#3B82F6]" />
-          </div>
-
-          <h1 className="text-[28px] font-semibold tracking-[-0.03em] text-slate-950">
-            Operix
-          </h1>
-
-          <p className="mt-2 text-[14px] font-medium text-slate-400">
-            Telegram-first Business OS
-          </p>
+    <main className="min-h-screen bg-[#f6f8fb] flex items-center justify-center px-4">
+      <form
+        onSubmit={submit}
+        className="w-full max-w-[480px] rounded-[28px] border border-slate-200 bg-white p-9 shadow-[0_20px_60px_rgba(15,23,42,0.08)]"
+      >
+        <div className="mb-7 flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-50">
+          <div className="h-6 w-6 rounded-lg bg-blue-500" />
         </div>
 
-        <div className="space-y-4">
+        <h1 className="text-3xl font-bold text-slate-950">Operix</h1>
+        <p className="mt-3 text-base text-slate-500">
+          Telegram-first Business OS
+        </p>
+
+        <div className="mt-9 space-y-4">
           <input
+            type="tel"
             value={phone}
-            onChange={(e) => setPhone(formatUzPhone(e.target.value))}
-            placeholder="+998 91 000 00 00"
-            inputMode="tel"
-            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-[#3B82F6]"
+            onChange={(e) => setPhone(formatPhone(e.target.value))}
+            placeholder="+998881234567"
+            className="h-14 w-full rounded-2xl border border-slate-200 px-5 text-base outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
           />
 
           <input
@@ -102,29 +107,27 @@ export default function LoginPage() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="Parol"
-            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-[#3B82F6]"
+            className="h-14 w-full rounded-2xl border border-slate-200 px-5 text-base outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
           />
+
+          {error && (
+            <div className="rounded-2xl bg-red-50 px-4 py-3 text-sm font-medium text-red-600">
+              {error}
+            </div>
+          )}
+
+          <button
+            disabled={loading}
+            className="h-14 w-full rounded-2xl bg-blue-500 text-base font-bold text-white transition hover:bg-blue-600 disabled:opacity-60"
+          >
+            {loading ? "Kirilmoqda..." : "Kirish"}
+          </button>
         </div>
 
-        {error && (
-          <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
-            {error}
-          </div>
-        )}
-
-        <button
-          type="button"
-          onClick={login}
-          disabled={loading}
-          className="mt-6 w-full rounded-2xl bg-[#3B82F6] py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
-        >
-          {loading ? "Kirilmoqda..." : "Kirish"}
-        </button>
-
-        <p className="mt-6 text-center text-[12px] font-medium text-slate-400">
+        <p className="mt-8 text-center text-sm text-slate-400">
           Operix CRM © 2026
         </p>
-      </div>
-    </div>
+      </form>
+    </main>
   );
 }

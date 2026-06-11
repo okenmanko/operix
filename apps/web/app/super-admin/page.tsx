@@ -1,393 +1,336 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Eye, EyeOff, Pencil, Plus, Search, Trash2, X } from "lucide-react";
-import AppLayout from "../components/AppLayout";
-import { apiJson } from "../lib/api";
-import {
-  formatPhone,
-  moduleLabels,
-  modulesForPlan,
-  normalizeModules,
-  plans,
-  type CompanyStatus,
-  type ModuleCode,
-  type PlanCode,
-} from "../lib/modules";
+import { Building2, CheckCircle2, CircleDollarSign, Lock, LogOut, Plus, Search, ShieldCheck, SlidersHorizontal, Users, X } from "lucide-react";
+import { apiJson, logout } from "../lib/api";
 
+type Status = "TRIAL" | "ACTIVE" | "BLOCKED";
+type Plan = "STARTER" | "BUSINESS" | "PRO" | "CUSTOM";
 type Company = {
   id: string;
   name: string;
   phone?: string | null;
-  status?: CompanyStatus;
-  subscriptionPlan?: PlanCode;
-  enabledModules?: ModuleCode[] | string;
+  status?: Status;
+  subscriptionPlan?: string;
+  enabledModules?: string[];
+  trialEndsAt?: string | null;
   createdAt?: string;
-  _count?: { users?: number; clients?: number; debts?: number; payments?: number };
+  users?: Array<{ id: string; fullName: string; phone: string; role: string; isActive?: boolean }>;
+  _stats?: { usersCount?: number; clientsCount?: number; debtsCount?: number; paymentsCount?: number };
+  _count?: { users?: number; clients?: number };
 };
 
-const statuses: CompanyStatus[] = ["TRIAL", "ACTIVE", "BLOCKED"];
-const planCodes: PlanCode[] = ["STARTER", "BUSINESS", "PRO"];
+const MODULES = [
+  { code: "CRM", label: "CRM", desc: "Mijozlar, qarzlar, to‘lovlar" },
+  { code: "DELIVERY", label: "Delivery", desc: "Yetkazib berish buyurtmalari" },
+  { code: "INVENTORY", label: "Sklad", desc: "Sklad, QR, mahsulotlar" },
+  { code: "POS", label: "POS/Sales", desc: "QR sotuv va kassaga tushum" },
+  { code: "CASHFLOW", label: "DDS", desc: "Pul kirim/chiqim nazorati" },
+  { code: "MOYSKLAD", label: "MoySklad", desc: "Integratsiya" },
+  { code: "ONE_C", label: "1C", desc: "Buxgalteriya integratsiyasi" },
+  { code: "ANALYTICS", label: "Analytics", desc: "Hisobot va grafiklar" },
+  { code: "KPI", label: "KPI", desc: "Hodimlar samaradorligi" },
+  { code: "AI_DIRECTOR", label: "AI Director", desc: "Rahbar uchun AI xulosa" },
+];
 
-const defaultForm = {
+const PLAN_PRESETS: Record<Plan, { label: string; price: number; clients: string; users: string; modules: string[] }> = {
+  STARTER: { label: "Starter", price: 300000, clients: "100", users: "3", modules: ["CRM", "DELIVERY"] },
+  BUSINESS: { label: "Business", price: 900000, clients: "2000", users: "15", modules: ["CRM", "DELIVERY", "INVENTORY", "POS", "CASHFLOW", "MOYSKLAD", "ANALYTICS"] },
+  PRO: { label: "Pro", price: 1800000, clients: "UNLIMITED", users: "UNLIMITED", modules: MODULES.map((m) => m.code) },
+  CUSTOM: { label: "Custom", price: 0, clients: "100", users: "3", modules: ["CRM"] },
+};
+
+const META_PREFIXES = ["LIMIT_CLIENTS_", "LIMIT_USERS_", "MONTHLY_PRICE_", "LAST_PAYMENT_", "NEXT_PAYMENT_"];
+
+function cleanModules(modules?: string[]) {
+  return (modules || []).filter((m) => !META_PREFIXES.some((p) => m.startsWith(p)));
+}
+function getMeta(modules: string[] | undefined, prefix: string, fallback = "") {
+  return (modules || []).find((m) => m.startsWith(prefix))?.slice(prefix.length) || fallback;
+}
+function withMeta(modules: string[], form: FormState) {
+  return [
+    ...cleanModules(modules),
+    `LIMIT_CLIENTS_${form.clientLimit || "UNLIMITED"}`,
+    `LIMIT_USERS_${form.userLimit || "UNLIMITED"}`,
+    `MONTHLY_PRICE_${String(form.monthlyPrice || 0)}`,
+    ...(form.lastPaymentDate ? [`LAST_PAYMENT_${form.lastPaymentDate}`] : []),
+    ...(form.nextPaymentDate ? [`NEXT_PAYMENT_${form.nextPaymentDate}`] : []),
+  ];
+}
+function money(value: any) {
+  const n = Number(value || 0);
+  return `${new Intl.NumberFormat("ru-RU").format(n)} UZS`;
+}
+function todayPlus(days: number) {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+function formatPhone(value: string) {
+  let digits = value.replace(/\D/g, "");
+  if (digits.startsWith("998")) digits = digits.slice(3);
+  digits = digits.slice(0, 9);
+  return digits ? `+998${digits}` : "";
+}
+
+type FormState = {
+  companyName: string;
+  companyPhone: string;
+  ownerName: string;
+  ownerPhone: string;
+  ownerPassword: string;
+  plan: Plan;
+  status: Status;
+  monthlyPrice: number;
+  clientLimit: string;
+  userLimit: string;
+  lastPaymentDate: string;
+  nextPaymentDate: string;
+  modules: string[];
+};
+
+const emptyForm: FormState = {
   companyName: "",
   companyPhone: "",
   ownerName: "",
   ownerPhone: "",
   ownerPassword: "",
-  status: "TRIAL" as CompanyStatus,
-  subscriptionPlan: "STARTER" as PlanCode,
-  enabledModules: modulesForPlan("STARTER"),
+  plan: "STARTER",
+  status: "TRIAL",
+  monthlyPrice: PLAN_PRESETS.STARTER.price,
+  clientLimit: PLAN_PRESETS.STARTER.clients,
+  userLimit: PLAN_PRESETS.STARTER.users,
+  lastPaymentDate: "",
+  nextPaymentDate: todayPlus(30),
+  modules: PLAN_PRESETS.STARTER.modules,
 };
 
 export default function SuperAdminPage() {
+  const [allowed, setAllowed] = useState(false);
+  const [checking, setChecking] = useState(true);
   const [companies, setCompanies] = useState<Company[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [message, setMessage] = useState("");
   const [query, setQuery] = useState("");
-  const [createOpen, setCreateOpen] = useState(false);
-  const [editCompany, setEditCompany] = useState<Company | null>(null);
-  const [detailCompany, setDetailCompany] = useState<Company | null>(null);
-  const [showPassword, setShowPassword] = useState(false);
-  const [form, setForm] = useState(defaultForm);
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [modal, setModal] = useState<"create" | "edit" | null>(null);
+  const [editing, setEditing] = useState<Company | null>(null);
+  const [form, setForm] = useState<FormState>(emptyForm);
 
   useEffect(() => {
-    loadCompanies();
+    try {
+      const user = JSON.parse(localStorage.getItem("operix_user") || "{}");
+      if (user?.role !== "SUPER_ADMIN") {
+        window.location.href = "/";
+        return;
+      }
+      setAllowed(true);
+      loadCompanies();
+    } finally {
+      setChecking(false);
+    }
   }, []);
 
   async function loadCompanies() {
     try {
       setLoading(true);
+      setMessage("");
       const data = await apiJson<Company[]>("/companies");
       setCompanies(Array.isArray(data) ? data : []);
-    } catch (err: any) {
-      setMessage(err.message || "Kompaniyalarni yuklashda xatolik");
+    } catch (e: any) {
+      setMessage(e?.message || "Kompaniyalarni olishda xatolik");
     } finally {
       setLoading(false);
     }
   }
 
+  const stats = useMemo(() => {
+    return {
+      total: companies.length,
+      active: companies.filter((c) => c.status === "ACTIVE").length,
+      trial: companies.filter((c) => c.status === "TRIAL").length,
+      blocked: companies.filter((c) => c.status === "BLOCKED").length,
+    };
+  }, [companies]);
+
   const filtered = useMemo(() => {
-    const term = query.toLowerCase().trim();
-    if (!term) return companies;
-    return companies.filter((company) => `${company.name} ${company.phone || ""}`.toLowerCase().includes(term));
+    const q = query.toLowerCase().trim();
+    if (!q) return companies;
+    return companies.filter((c) => `${c.name} ${c.phone || ""} ${c.subscriptionPlan || ""}`.toLowerCase().includes(q));
   }, [companies, query]);
 
+  function applyPlan(plan: Plan) {
+    const p = PLAN_PRESETS[plan];
+    setForm((f) => ({ ...f, plan, monthlyPrice: p.price, clientLimit: p.clients, userLimit: p.users, modules: p.modules }));
+  }
+
   function openCreate() {
-    setForm(defaultForm);
-    setCreateOpen(true);
+    setEditing(null);
+    setForm(emptyForm);
+    setModal("create");
     setMessage("");
   }
 
   function openEdit(company: Company) {
-    setEditCompany(company);
+    const modules = company.enabledModules || [];
+    const plan = (company.subscriptionPlan || "STARTER") as Plan;
+    setEditing(company);
     setForm({
       companyName: company.name,
       companyPhone: company.phone || "",
       ownerName: "",
       ownerPhone: "",
       ownerPassword: "",
+      plan: ["STARTER", "BUSINESS", "PRO", "CUSTOM"].includes(plan) ? plan : "CUSTOM",
       status: company.status || "TRIAL",
-      subscriptionPlan: company.subscriptionPlan || "STARTER",
-      enabledModules: normalizeModules(company.enabledModules).length
-        ? normalizeModules(company.enabledModules)
-        : modulesForPlan(company.subscriptionPlan),
+      monthlyPrice: Number(getMeta(modules, "MONTHLY_PRICE_", String(PLAN_PRESETS.STARTER.price))),
+      clientLimit: getMeta(modules, "LIMIT_CLIENTS_", PLAN_PRESETS.STARTER.clients),
+      userLimit: getMeta(modules, "LIMIT_USERS_", PLAN_PRESETS.STARTER.users),
+      lastPaymentDate: getMeta(modules, "LAST_PAYMENT_", ""),
+      nextPaymentDate: getMeta(modules, "NEXT_PAYMENT_", ""),
+      modules: cleanModules(modules).length ? cleanModules(modules) : PLAN_PRESETS.STARTER.modules,
     });
-    setMessage("");
+    setModal("edit");
   }
 
-  function changePlan(plan: PlanCode) {
-    setForm((prev) => ({ ...prev, subscriptionPlan: plan, enabledModules: modulesForPlan(plan) }));
+  function toggleModule(code: string) {
+    setForm((f) => ({ ...f, modules: f.modules.includes(code) ? f.modules.filter((m) => m !== code) : [...f.modules, code] }));
   }
 
-  function toggleModule(module: ModuleCode) {
-    setForm((prev) => {
-      const has = prev.enabledModules.includes(module);
-      return {
-        ...prev,
-        enabledModules: has ? prev.enabledModules.filter((item) => item !== module) : [...prev.enabledModules, module],
-      };
-    });
-  }
-
-  async function createCompany() {
-    if (!form.companyName || !form.ownerName || !form.ownerPhone || !form.ownerPassword) {
-      setMessage("Kompaniya nomi, owner ismi, telefon va parol majburiy");
-      return;
+  async function save() {
+    try {
+      setLoading(true);
+      setMessage("");
+      const enabledModules = withMeta(form.modules, form);
+      if (modal === "create") {
+        if (!form.companyName || !form.ownerName || !form.ownerPhone || !form.ownerPassword) {
+          setMessage("Kompaniya, owner ismi, telefon va parol majburiy");
+          return;
+        }
+        await apiJson("/auth/create-company-owner", {
+          method: "POST",
+          body: JSON.stringify({
+            companyName: form.companyName,
+            companyPhone: form.companyPhone || undefined,
+            fullName: form.ownerName,
+            phone: formatPhone(form.ownerPhone),
+            password: form.ownerPassword,
+            status: form.status,
+            subscriptionPlan: form.plan,
+            enabledModules,
+          }),
+        });
+      } else if (editing) {
+        await apiJson(`/companies/${editing.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            name: form.companyName,
+            phone: form.companyPhone || null,
+            status: form.status,
+            subscriptionPlan: form.plan,
+            enabledModules,
+          }),
+        });
+      }
+      setModal(null);
+      await loadCompanies();
+    } catch (e: any) {
+      setMessage(e?.message || "Saqlashda xatolik");
+    } finally {
+      setLoading(false);
     }
+  }
 
-    await apiJson("/auth/create-company-owner", {
-      method: "POST",
-      body: JSON.stringify({
-        companyName: form.companyName,
-        companyPhone: form.companyPhone || undefined,
-        fullName: form.ownerName,
-        phone: form.ownerPhone,
-        password: form.ownerPassword,
-        status: form.status,
-        subscriptionPlan: form.subscriptionPlan,
-        enabledModules: form.enabledModules,
-      }),
-    });
-
-    setCreateOpen(false);
-    setMessage("Kompaniya yaratildi");
+  async function quickStatus(company: Company, status: Status) {
+    await apiJson(`/companies/${company.id}`, { method: "PATCH", body: JSON.stringify({ status }) });
     await loadCompanies();
   }
 
-  async function updateCompany() {
-    if (!editCompany) return;
-    await apiJson(`/companies/${editCompany.id}`, {
-      method: "PATCH",
-      body: JSON.stringify({
-        name: form.companyName,
-        phone: form.companyPhone || null,
-        status: form.status,
-        subscriptionPlan: form.subscriptionPlan,
-        enabledModules: form.enabledModules,
-      }),
-    });
-    setEditCompany(null);
-    setMessage("Kompaniya yangilandi");
-    await loadCompanies();
-  }
-
-  async function quickStatus(company: Company, status: CompanyStatus) {
-    await apiJson(`/companies/${company.id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ status }),
-    });
-    await loadCompanies();
-  }
-
-  async function deleteCompany(company: Company) {
-    if (!confirm(`${company.name} o‘chirilsinmi?`)) return;
-    await apiJson(`/companies/${company.id}`, { method: "DELETE" });
-    await loadCompanies();
-  }
+  if (checking) return <div className="flex min-h-screen items-center justify-center bg-slate-50 text-slate-500">Tekshirilmoqda...</div>;
+  if (!allowed) return null;
 
   return (
-    <AppLayout title="Super Admin" subtitle="Kompaniyalar, tariflar va modullar boshqaruvi">
-      <div className="mb-5 grid grid-cols-4 gap-4">
-        <Metric title="Kompaniyalar" value={companies.length} />
-        <Metric title="Active" value={companies.filter((c) => c.status === "ACTIVE").length} />
-        <Metric title="Trial" value={companies.filter((c) => c.status === "TRIAL").length} />
-        <Metric title="Blocked" value={companies.filter((c) => c.status === "BLOCKED").length} />
-      </div>
+    <main className="min-h-screen bg-slate-50 px-8 py-7 text-slate-950">
+      <header className="mb-8 flex items-start justify-between gap-5">
+        <div>
+          <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-bold text-blue-700"><ShieldCheck size={17}/> Operix Super Admin</div>
+          <h1 className="text-[42px] font-black tracking-[-0.06em]">Platforma boshqaruvi</h1>
+          <p className="mt-2 text-[15px] font-semibold text-slate-500">Kompaniyalar, tariflar, modullar, limitlar va oylik to‘lov nazorati.</p>
+        </div>
+        <button onClick={logout} className="rounded-2xl border border-red-200 bg-white px-5 py-3 text-sm font-black text-red-600 hover:bg-red-50"><LogOut className="mr-2 inline" size={17}/> Chiqish</button>
+      </header>
 
-      <div className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-        <div className="mb-6 flex items-center justify-between gap-4">
+      <section className="grid grid-cols-4 gap-4">
+        <Stat title="Kompaniyalar" value={stats.total} icon={<Building2/>}/>
+        <Stat title="Active" value={stats.active} icon={<CheckCircle2/>}/>
+        <Stat title="Trial" value={stats.trial} icon={<CircleDollarSign/>}/>
+        <Stat title="Blocked" value={stats.blocked} icon={<Lock/>}/>
+      </section>
+
+      <section className="mt-5 rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="mb-5 flex items-center justify-between gap-4">
           <div>
-            <h2 className="text-[22px] font-semibold tracking-[-0.03em] text-slate-950 dark:text-white">Kompaniyalar</h2>
-            <p className="mt-1 text-[13px] font-medium text-slate-400">Platformadagi barcha bizneslar va ulangan modullar</p>
+            <h2 className="text-2xl font-black tracking-[-0.04em]">Kompaniyalar</h2>
+            <p className="mt-1 text-sm font-semibold text-slate-400">Har bir kompaniyaga alohida plan, modul va limit belgilanadi.</p>
           </div>
-          <button onClick={openCreate} className="flex items-center gap-2 rounded-2xl bg-sky-500 px-5 py-3 text-sm font-semibold text-white transition hover:bg-sky-600">
-            <Plus size={17} /> Kompaniya qo‘shish
-          </button>
+          <button onClick={openCreate} className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-black text-white hover:bg-blue-700"><Plus className="mr-2 inline" size={17}/> Kompaniya qo‘shish</button>
         </div>
 
-        <div className="mb-5 flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950">
-          <Search size={17} className="text-slate-400" />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder=""
-            className="w-full bg-transparent text-sm outline-none dark:text-white"
-          />
+        <div className="mb-4 flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+          <Search size={18} className="text-slate-400" />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Kompaniya, telefon yoki plan bo‘yicha qidirish" className="w-full bg-transparent text-sm font-semibold outline-none" />
         </div>
 
-        {message && <div className="mb-4 rounded-2xl bg-sky-50 px-4 py-3 text-sm font-medium text-sky-700 dark:bg-sky-950/40 dark:text-sky-300">{message}</div>}
+        {message && <div className="mb-4 rounded-2xl bg-blue-50 px-4 py-3 text-sm font-bold text-blue-700">{message}</div>}
 
-        <div className="overflow-hidden rounded-2xl border border-slate-100 dark:border-slate-800">
-          <div className="grid grid-cols-[1.5fr_1fr_1.5fr_1fr_130px] bg-slate-50 px-5 py-3 text-[12px] font-semibold uppercase tracking-[0.08em] text-slate-400 dark:bg-slate-950">
-            <span>Kompaniya</span>
-            <span>Plan</span>
-            <span>Modullar</span>
-            <span>Status</span>
-            <span className="text-right">Amal</span>
+        <div className="overflow-hidden rounded-2xl border border-slate-100">
+          <div className="grid grid-cols-[1.4fr_.8fr_.8fr_.7fr_.8fr_.7fr] bg-slate-50 px-5 py-4 text-xs font-black uppercase tracking-[0.12em] text-slate-400">
+            <div>Kompaniya</div><div>Plan / Narx</div><div>Limit</div><div>To‘lov</div><div>Status</div><div className="text-right">Amal</div>
           </div>
-
-          {loading ? (
-            <div className="p-6 text-sm text-slate-400">Yuklanmoqda...</div>
-          ) : filtered.length === 0 ? (
-            <div className="p-6 text-sm text-slate-400">Kompaniya topilmadi</div>
-          ) : (
-            filtered.map((company) => {
-              const modules = normalizeModules(company.enabledModules);
-              return (
-                <div key={company.id} className="grid grid-cols-[1.5fr_1fr_1.5fr_1fr_130px] items-center border-t border-slate-100 px-5 py-4 dark:border-slate-800">
-                  <button type="button" onClick={() => setDetailCompany(company)} className="text-left">
-                    <p className="text-[15px] font-semibold text-slate-950 dark:text-white">{company.name}</p>
-                    <p className="mt-1 text-[12px] font-medium text-slate-400">{company.phone || "Telefon kiritilmagan"}</p>
-                  </button>
-
-                  <div>
-                    <span className="rounded-full bg-slate-100 px-3 py-1.5 text-[11px] font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                      {plans[company.subscriptionPlan || "STARTER"]?.name || "Starter"}
-                    </span>
-                  </div>
-
-                  <div className="flex flex-wrap gap-1.5">
-                    {(modules.length ? modules : modulesForPlan(company.subscriptionPlan)).slice(0, 6).map((module) => (
-                      <span key={module} className="rounded-full bg-sky-50 px-2.5 py-1 text-[11px] font-semibold text-sky-700 dark:bg-sky-950/50 dark:text-sky-300">
-                        {moduleLabels[module]?.uz || module}
-                      </span>
-                    ))}
-                  </div>
-
-                  <select
-                    value={company.status || "TRIAL"}
-                    onChange={(e) => quickStatus(company, e.target.value as CompanyStatus)}
-                    className="w-fit rounded-xl border border-slate-200 bg-white px-3 py-2 text-[12px] font-bold text-slate-700 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300"
-                  >
-                    {statuses.map((status) => (
-                      <option key={status} value={status}>{status}</option>
-                    ))}
-                  </select>
-
-                  <div className="flex justify-end gap-2">
-                    <button onClick={() => openEdit(company)} className="rounded-xl border border-slate-200 p-2 text-slate-500 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800"><Pencil size={16} /></button>
-                    <button onClick={() => deleteCompany(company)} className="rounded-xl border border-red-200 p-2 text-red-500 hover:bg-red-50 dark:border-red-900 dark:hover:bg-red-950/30"><Trash2 size={16} /></button>
-                  </div>
-                </div>
-              );
-            })
-          )}
+          {loading ? <div className="p-6 text-sm font-bold text-slate-400">Yuklanmoqda...</div> : filtered.length === 0 ? <div className="p-6 text-sm font-bold text-slate-400">Kompaniya topilmadi</div> : filtered.map((c) => {
+            const modules = c.enabledModules || [];
+            const clientLimit = getMeta(modules, "LIMIT_CLIENTS_", "—");
+            const userLimit = getMeta(modules, "LIMIT_USERS_", "—");
+            const price = getMeta(modules, "MONTHLY_PRICE_", "0");
+            const nextPay = getMeta(modules, "NEXT_PAYMENT_", "—");
+            return <div key={c.id} className="grid grid-cols-[1.4fr_.8fr_.8fr_.7fr_.8fr_.7fr] items-center border-t border-slate-100 px-5 py-4 text-sm">
+              <div><p className="font-black text-slate-900">{c.name}</p><p className="mt-1 text-xs font-bold text-slate-400">{c.phone || "Telefon yo‘q"} · user: {c._stats?.usersCount ?? c.users?.length ?? 0} · client: {c._stats?.clientsCount ?? 0}</p></div>
+              <div><p className="font-black">{c.subscriptionPlan || "STARTER"}</p><p className="text-xs font-bold text-slate-400">{money(price)}</p></div>
+              <div className="text-xs font-bold text-slate-500"><p>Client: {clientLimit}</p><p>User: {userLimit}</p></div>
+              <div className="text-xs font-bold text-slate-500">{nextPay}</div>
+              <div><select value={c.status || "TRIAL"} onChange={(e) => quickStatus(c, e.target.value as Status)} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black outline-none"><option>TRIAL</option><option>ACTIVE</option><option>BLOCKED</option></select></div>
+              <div className="text-right"><button onClick={() => openEdit(c)} className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-black hover:bg-slate-50"><SlidersHorizontal className="mr-1 inline" size={14}/> Boshqarish</button></div>
+            </div>;
+          })}
         </div>
-      </div>
+      </section>
 
-      {(createOpen || editCompany) && (
-        <CompanyModal
-          title={createOpen ? "Yangi kompaniya" : "Kompaniyani tahrirlash"}
-          form={form}
-          setForm={setForm}
-          showPassword={showPassword}
-          setShowPassword={setShowPassword}
-          onClose={() => {
-            setCreateOpen(false);
-            setEditCompany(null);
-          }}
-          onSave={createOpen ? createCompany : updateCompany}
-          isEdit={Boolean(editCompany)}
-          changePlan={changePlan}
-          toggleModule={toggleModule}
-        />
-      )}
-
-      {detailCompany && (
-        <DetailModal company={detailCompany} onClose={() => setDetailCompany(null)} />
-      )}
-    </AppLayout>
+      {modal && <Modal title={modal === "create" ? "Yangi kompaniya" : "Kompaniyani boshqarish"} onClose={() => setModal(null)}>
+        <div className="grid grid-cols-2 gap-4">
+          <Input label="Kompaniya nomi" value={form.companyName} onChange={(v) => setForm({...form, companyName: v})}/>
+          <Input label="Kompaniya telefoni" value={form.companyPhone} onChange={(v) => setForm({...form, companyPhone: v})}/>
+          {modal === "create" && <><Input label="Owner ismi" value={form.ownerName} onChange={(v) => setForm({...form, ownerName: v})}/><Input label="Owner telefon" value={form.ownerPhone} onChange={(v) => setForm({...form, ownerPhone: v})}/><Input label="Owner parol" value={form.ownerPassword} onChange={(v) => setForm({...form, ownerPassword: v})}/></>}
+          <label className="block"><span className="text-xs font-black uppercase text-slate-400">Status</span><select value={form.status} onChange={(e) => setForm({...form, status: e.target.value as Status})} className="mt-2 h-12 w-full rounded-2xl border border-slate-200 px-4 font-bold outline-none"><option>TRIAL</option><option>ACTIVE</option><option>BLOCKED</option></select></label>
+          <label className="block"><span className="text-xs font-black uppercase text-slate-400">Plan</span><select value={form.plan} onChange={(e) => applyPlan(e.target.value as Plan)} className="mt-2 h-12 w-full rounded-2xl border border-slate-200 px-4 font-bold outline-none"><option>STARTER</option><option>BUSINESS</option><option>PRO</option><option>CUSTOM</option></select></label>
+          <Input label="Oylik narx UZS" value={String(form.monthlyPrice)} onChange={(v) => setForm({...form, monthlyPrice: Number(v.replace(/\D/g, "") || 0), plan: form.plan === "CUSTOM" ? "CUSTOM" : form.plan})}/>
+          <Input label="Mijoz limiti" value={form.clientLimit} onChange={(v) => setForm({...form, clientLimit: v, plan: "CUSTOM"})}/>
+          <Input label="User limiti" value={form.userLimit} onChange={(v) => setForm({...form, userLimit: v, plan: "CUSTOM"})}/>
+          <Input label="Oxirgi to‘lov sanasi" type="date" value={form.lastPaymentDate} onChange={(v) => setForm({...form, lastPaymentDate: v})}/>
+          <Input label="Keyingi to‘lov sanasi" type="date" value={form.nextPaymentDate} onChange={(v) => setForm({...form, nextPaymentDate: v})}/>
+        </div>
+        <div className="mt-5"><p className="mb-3 text-xs font-black uppercase tracking-[0.12em] text-slate-400">Modullar</p><div className="grid grid-cols-2 gap-3">{MODULES.map((m) => <button key={m.code} onClick={() => toggleModule(m.code)} className={`rounded-2xl border p-4 text-left transition ${form.modules.includes(m.code) ? "border-blue-300 bg-blue-50" : "border-slate-200 bg-white hover:bg-slate-50"}`}><p className="font-black">{m.label}</p><p className="mt-1 text-xs font-semibold text-slate-500">{m.desc}</p></button>)}</div></div>
+        <div className="mt-6 flex justify-end gap-3"><button onClick={() => setModal(null)} className="rounded-2xl border border-slate-200 px-5 py-3 font-black">Bekor qilish</button><button onClick={save} className="rounded-2xl bg-blue-600 px-6 py-3 font-black text-white">Saqlash</button></div>
+      </Modal>}
+    </main>
   );
 }
 
-function Metric({ title, value }: { title: string; value: number }) {
-  return (
-    <div className="rounded-[22px] border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-      <p className="text-[12px] font-semibold text-slate-400">{title}</p>
-      <p className="mt-2 text-[28px] font-semibold tracking-[-0.05em] text-slate-950 dark:text-white">{value}</p>
-    </div>
-  );
+function Stat({ title, value, icon }: { title: string; value: any; icon: any }) {
+  return <div className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm"><div className="mb-4 flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">{icon}</div><p className="text-sm font-black text-slate-400">{title}</p><p className="mt-3 text-4xl font-black tracking-[-0.06em]">{value}</p></div>;
 }
-
-function CompanyModal({ title, form, setForm, showPassword, setShowPassword, onClose, onSave, isEdit, changePlan, toggleModule }: any) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/30 p-6 backdrop-blur-sm">
-      <div className="max-h-[92vh] w-full max-w-3xl overflow-auto rounded-[28px] border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
-        <div className="mb-5 flex items-center justify-between">
-          <div>
-            <h3 className="text-[22px] font-semibold tracking-[-0.03em] dark:text-white">{title}</h3>
-            <p className="mt-1 text-[13px] font-medium text-slate-400">Plan tanlanganda modullar avtomatik belgilanadi</p>
-          </div>
-          <button onClick={onClose} className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"><X size={18} /></button>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <Input label="Kompaniya nomi" value={form.companyName} onChange={(v: string) => setForm((p: any) => ({ ...p, companyName: v }))} />
-          <Input label="Kompaniya telefoni" value={form.companyPhone} onChange={(v: string) => setForm((p: any) => ({ ...p, companyPhone: formatPhone(v) }))} />
-          {!isEdit && <Input label="Owner ismi" value={form.ownerName} onChange={(v: string) => setForm((p: any) => ({ ...p, ownerName: v }))} />}
-          {!isEdit && <Input label="Owner telefoni" value={form.ownerPhone} onChange={(v: string) => setForm((p: any) => ({ ...p, ownerPhone: formatPhone(v) }))} />}
-          {!isEdit && (
-            <div>
-              <label className="mb-2 block text-[12px] font-semibold text-slate-500">Owner paroli</label>
-              <div className="relative">
-                <input type={showPassword ? "text" : "password"} value={form.ownerPassword} onChange={(e) => setForm((p: any) => ({ ...p, ownerPassword: e.target.value }))} className="w-full rounded-2xl border border-slate-200 px-4 py-3 pr-11 text-sm outline-none focus:border-sky-400 dark:border-slate-800 dark:bg-slate-950 dark:text-white" />
-                <button type="button" onClick={() => setShowPassword((v: boolean) => !v)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400">{showPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button>
-              </div>
-            </div>
-          )}
-          <div>
-            <label className="mb-2 block text-[12px] font-semibold text-slate-500">Status</label>
-            <select value={form.status} onChange={(e) => setForm((p: any) => ({ ...p, status: e.target.value }))} className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white">
-              {statuses.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
-          </div>
-        </div>
-
-        <div className="mt-5 grid grid-cols-3 gap-3">
-          {planCodes.map((code) => (
-            <button key={code} type="button" onClick={() => changePlan(code)} className={`rounded-2xl border p-4 text-left transition ${form.subscriptionPlan === code ? "border-sky-300 bg-sky-50 dark:border-sky-700 dark:bg-sky-950/40" : "border-slate-200 bg-white hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950"}`}>
-              <p className="text-[15px] font-semibold dark:text-white">{plans[code].name}</p>
-              <p className="mt-1 text-[12px] font-medium text-slate-400">{plans[code].subtitle}</p>
-            </button>
-          ))}
-        </div>
-
-        <div className="mt-5 grid grid-cols-4 gap-2">
-          {(Object.keys(moduleLabels) as ModuleCode[]).map((module) => (
-            <button key={module} type="button" onClick={() => toggleModule(module)} className={`rounded-2xl border px-3 py-3 text-left text-[13px] font-semibold transition ${form.enabledModules.includes(module) ? "border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-700 dark:bg-sky-950/40 dark:text-sky-300" : "border-slate-200 text-slate-500 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800"}`}>
-              {moduleLabels[module].uz}
-            </button>
-          ))}
-        </div>
-
-        <button onClick={onSave} className="mt-6 w-full rounded-2xl bg-sky-500 py-3 text-sm font-semibold text-white transition hover:bg-sky-600">Saqlash</button>
-      </div>
-    </div>
-  );
+function Input({ label, value, onChange, type = "text" }: { label: string; value: string; onChange: (v: string) => void; type?: string }) {
+  return <label className="block"><span className="text-xs font-black uppercase text-slate-400">{label}</span><input type={type} value={value} onChange={(e) => onChange(e.target.value)} className="mt-2 h-12 w-full rounded-2xl border border-slate-200 px-4 font-bold outline-none focus:border-blue-400" /></label>;
 }
-
-function Input({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
-  return (
-    <div>
-      <label className="mb-2 block text-[12px] font-semibold text-slate-500">{label}</label>
-      <input value={value} onChange={(e) => onChange(e.target.value)} placeholder="" className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-sky-400 dark:border-slate-800 dark:bg-slate-950 dark:text-white" />
-    </div>
-  );
-}
-
-function DetailModal({ company, onClose }: { company: Company; onClose: () => void }) {
-  const modules = normalizeModules(company.enabledModules);
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/30 p-6 backdrop-blur-sm">
-      <div className="w-full max-w-4xl rounded-[28px] border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
-        <div className="mb-5 flex items-center justify-between">
-          <div>
-            <h3 className="text-[24px] font-semibold tracking-[-0.04em] dark:text-white">{company.name}</h3>
-            <p className="mt-1 text-sm text-slate-400">{company.phone || "Telefon kiritilmagan"} • {company.status || "TRIAL"} • {company.subscriptionPlan || "STARTER"}</p>
-          </div>
-          <button onClick={onClose} className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"><X size={18} /></button>
-        </div>
-
-        <div className="grid grid-cols-4 gap-3">
-          <Metric title="Users" value={company._count?.users || 0} />
-          <Metric title="Clients" value={company._count?.clients || 0} />
-          <Metric title="Debts" value={company._count?.debts || 0} />
-          <Metric title="Payments" value={company._count?.payments || 0} />
-        </div>
-
-        <div className="mt-5 rounded-2xl bg-slate-50 p-4 dark:bg-slate-950">
-          <p className="mb-3 text-[13px] font-semibold text-slate-500">Ulangan modullar</p>
-          <div className="grid grid-cols-4 gap-2">
-            {(modules.length ? modules : modulesForPlan(company.subscriptionPlan)).map((module) => (
-              <div key={module} className="rounded-2xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
-                <p className="text-[13px] font-semibold dark:text-white">{moduleLabels[module]?.uz || module}</p>
-                <p className="mt-1 text-[11px] text-slate-400">{moduleLabels[module]?.desc}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+function Modal({ title, children, onClose }: { title: string; children: any; onClose: () => void }) {
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-6"><div className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-[30px] bg-white p-7 shadow-2xl"><div className="mb-6 flex items-center justify-between"><h2 className="text-3xl font-black tracking-[-0.05em]">{title}</h2><button onClick={onClose} className="rounded-2xl border border-slate-200 p-3 hover:bg-slate-50"><X size={18}/></button></div>{children}</div></div>;
 }
