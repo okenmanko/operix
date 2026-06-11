@@ -18,6 +18,7 @@ import {
   Banknote,
   ShoppingCart,
   LineChart,
+  Activity,
 } from "lucide-react";
 import { getStoredCompany, getStoredUser, hasModule, type ModuleCode } from "./lib/modules";
 
@@ -53,6 +54,7 @@ const groups: Array<{
       { href: "/sales", label: "Sotuv POS", icon: ShoppingCart, module: "POS" },
       { href: "/cashflow", label: "DDS", icon: Banknote, module: "DDS" },
       { href: "/analytics", label: "Analytics", icon: LineChart, module: "ANALYTICS" },
+      { href: "/bi", label: "BI Dashboard", icon: Activity, module: "ANALYTICS" },
     ],
   },
 ];
@@ -85,7 +87,6 @@ export default function Sidebar() {
         {groups.map((group) => {
           const items = group.items.filter((item) => canShow(item.module));
           if (!items.length) return null;
-
           return (
             <div key={group.title}>
               <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">{group.title}</p>
@@ -94,13 +95,7 @@ export default function Sidebar() {
                   const Icon = link.icon;
                   const active = pathname === link.href || (link.href !== "/" && pathname.startsWith(link.href));
                   return (
-                    <Link
-                      key={link.href}
-                      href={link.href}
-                      className={`flex items-center gap-3 rounded-2xl px-3 py-3 text-[14px] font-semibold transition ${
-                        active ? "bg-slate-950 text-white shadow-sm" : "text-slate-500 hover:bg-slate-100 hover:text-slate-950"
-                      }`}
-                    >
+                    <Link key={link.href} href={link.href} className={`flex items-center gap-3 rounded-2xl px-3 py-3 text-[14px] font-semibold transition ${active ? "bg-slate-950 text-white shadow-sm" : "text-slate-500 hover:bg-slate-100 hover:text-slate-950"}`}>
                       <Icon size={17} strokeWidth={active ? 2.2 : 1.8} className={active ? "text-white" : "text-slate-500"} />
                       <span>{link.label}</span>
                     </Link>
@@ -113,12 +108,7 @@ export default function Sidebar() {
       </nav>
 
       <div className="mt-5 border-t border-slate-100 pt-4">
-        <Link
-          href="/settings"
-          className={`flex items-center gap-3 rounded-2xl px-3 py-3 text-[14px] font-semibold transition ${
-            pathname === "/settings" ? "bg-slate-950 text-white shadow-sm" : "text-slate-500 hover:bg-slate-100 hover:text-slate-950"
-          }`}
-        >
+        <Link href="/settings" className={`flex items-center gap-3 rounded-2xl px-3 py-3 text-[14px] font-semibold transition ${pathname === "/settings" ? "bg-slate-950 text-white shadow-sm" : "text-slate-500 hover:bg-slate-100 hover:text-slate-950"}`}>
           <Settings size={17} strokeWidth={pathname === "/settings" ? 2.2 : 1.8} className={pathname === "/settings" ? "text-white" : "text-slate-500"} />
           Sozlamalar
         </Link>
