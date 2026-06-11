@@ -2,17 +2,10 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
-
-function setCookie(name: string, value: string, days = 1) {
-  const maxAge = days * 24 * 60 * 60;
-  document.cookie = `${name}=${value}; path=/; max-age=${maxAge}; SameSite=Lax`;
-}
+import { API_URL, setCookie } from "../lib/api";
 
 export default function SuperLoginPage() {
   const router = useRouter();
-
   const [phone, setPhone] = useState("+998882962500");
   const [password, setPassword] = useState("");
   const [secretKey, setSecretKey] = useState("");
@@ -39,10 +32,7 @@ export default function SuperLoginPage() {
       }
 
       const token = data.token || data.accessToken;
-
-      if (!token) {
-        throw new Error("Token kelmadi");
-      }
+      if (!token) throw new Error("Token kelmadi");
 
       localStorage.setItem("operix_token", token);
       localStorage.setItem("operix_user", JSON.stringify(data.user || {}));
@@ -59,35 +49,34 @@ export default function SuperLoginPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f6f8fb] flex items-center justify-center px-4">
+    <main className="flex min-h-screen items-center justify-center bg-[#f6f8fb] px-4">
       <form
         onSubmit={submit}
-        className="w-full max-w-[480px] rounded-[28px] border border-slate-200 bg-white p-9 shadow-[0_20px_60px_rgba(15,23,42,0.08)]"
+        className="w-full max-w-[500px] rounded-[32px] border border-slate-200 bg-white p-10 shadow-[0_24px_80px_rgba(15,23,42,0.08)]"
       >
-        <div className="mb-7 flex h-14 w-14 items-center justify-center rounded-2xl bg-red-50">
-          <div className="h-6 w-6 rounded-lg bg-red-500" />
+        <div className="mb-8 flex h-16 w-16 items-center justify-center rounded-3xl bg-red-50">
+          <div className="h-7 w-7 rounded-xl bg-red-500" />
         </div>
 
-        <h1 className="text-3xl font-bold text-slate-950">Super Admin</h1>
-        <p className="mt-3 text-base text-slate-500">
+        <h1 className="text-4xl font-bold text-slate-950">Super Admin</h1>
+        <p className="mt-3 text-base font-medium text-slate-500">
           Operix master panel
         </p>
 
         <div className="mt-9 space-y-4">
           <input
-            type="tel"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
-            placeholder="+998882962500"
-            className="h-14 w-full rounded-2xl border border-slate-200 px-5 text-base outline-none transition focus:border-red-500 focus:ring-4 focus:ring-red-100"
+            placeholder="+998..."
+            className="h-14 w-full rounded-2xl border border-slate-200 px-5 outline-none transition focus:border-red-500 focus:ring-4 focus:ring-red-100"
           />
 
           <input
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="Super Admin parol"
-            className="h-14 w-full rounded-2xl border border-slate-200 px-5 text-base outline-none transition focus:border-red-500 focus:ring-4 focus:ring-red-100"
+            placeholder="Parol"
+            className="h-14 w-full rounded-2xl border border-slate-200 px-5 outline-none transition focus:border-red-500 focus:ring-4 focus:ring-red-100"
           />
 
           <input
@@ -95,11 +84,11 @@ export default function SuperLoginPage() {
             value={secretKey}
             onChange={(e) => setSecretKey(e.target.value)}
             placeholder="Master secret key"
-            className="h-14 w-full rounded-2xl border border-slate-200 px-5 text-base outline-none transition focus:border-red-500 focus:ring-4 focus:ring-red-100"
+            className="h-14 w-full rounded-2xl border border-slate-200 px-5 outline-none transition focus:border-red-500 focus:ring-4 focus:ring-red-100"
           />
 
           {error && (
-            <div className="rounded-2xl bg-red-50 px-4 py-3 text-sm font-medium text-red-600">
+            <div className="rounded-2xl bg-red-50 px-4 py-3 text-sm font-bold text-red-600">
               {error}
             </div>
           )}

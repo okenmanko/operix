@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import Sidebar from "../Sidebar";
-import { logout } from "../lib/api";
+import { clearAuth } from "../lib/api";
 import { getStoredCompany, getStoredUser } from "../lib/modules";
 
 export default function AppLayout({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
@@ -29,8 +29,10 @@ export default function AppLayout({ title, subtitle, children }: { title: string
               {user?.fullName || "User"}
             </div>
             <button
-              onClick={logout}
-              className="rounded-2xl border border-red-200 bg-white px-5 py-3 text-[14px] font-bold text-red-600 transition hover:bg-red-50"
+              onClick={() => {
+                clearAuth();
+                window.location.href = "/login";
+              }} className="rounded-2xl border border-red-200 bg-white px-5 py-3 text-[14px] font-bold text-red-600 transition hover:bg-red-50"
             >
               Chiqish
             </button>

@@ -79,14 +79,16 @@ function getClientIp(request: NextRequest) {
 
 function isIpAllowed(request: NextRequest) {
   const raw = process.env.SUPER_ADMIN_ALLOWED_IPS || "";
-  const allowed = raw.split(",").map((x) => x.trim()).filter(Boolean);
+  const allowed = raw
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
 
   if (allowed.length === 0) {
     return process.env.NODE_ENV !== "production";
   }
 
   const ip = getClientIp(request);
-
   if (!ip && process.env.NODE_ENV !== "production") return true;
 
   return allowed.includes(ip) || allowed.includes("*");
@@ -107,13 +109,23 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
-  if (pathname.startsWith("/super-admin")) {
-    const secret = process.env.JWT_SECRET || "operix_super_secret_123";
-    const payload = await verifyJwtHS256(token, secret);
+  const secret = process.env.JWT_SECRET || "operix_super_secret_123";
+  const payload = await verifyJwtHS256(token, secret);
 
-    if (payload?.role !== "SUPER_ADMIN" || !isIpAllowed(request)) {
+  if (!payload) {
+    const res = NextResponse.redirect(new URL("/login", request.url));
+    res.cookies.delete("operix_token");
+    return res;
+  }
+
+  if (pathname.startsWith("/super-admin")) {
+    if (payload.role !== "SUPER_ADMIN" || !isIpAllowed(request)) {
       return NextResponse.redirect(new URL("/", request.url));
     }
+  }
+
+  if (!pathname.startsWith("/super-admin") && payload.role === "SUPER_ADMIN") {
+    return NextResponse.redirect(new URL("/super-admin", request.url));
   }
 
   return NextResponse.next();
