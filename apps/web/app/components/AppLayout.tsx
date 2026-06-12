@@ -1,45 +1,42 @@
 "use client";
 
 import type { ReactNode } from "react";
-import Sidebar from "../Sidebar";
+import Sidebar from "./Sidebar";
+import PageHeader from "./PageHeader";
 import { clearAuth } from "../lib/api";
-import { getStoredCompany, getStoredUser } from "../lib/modules";
 
-export default function AppLayout({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
-  const company = getStoredCompany();
-  const user = getStoredUser();
-
+export default function AppLayout({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  children: ReactNode;
+}) {
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-950">
+    <main className="premium-page min-h-screen text-[#111827]">
       <Sidebar />
-      <main className="ml-[230px] min-h-screen px-10 py-8">
-        <header className="mb-8 flex items-start justify-between gap-5">
-          <div>
-            <h1 className="text-[38px] font-bold tracking-[-0.06em] text-slate-950">{title}</h1>
-            {subtitle && <p className="mt-2 text-[15px] font-semibold text-slate-500">{subtitle}</p>}
-          </div>
-          <div className="flex items-center gap-3">
-            {company?.status === "BLOCKED" && (
-              <div className="rounded-2xl border border-red-200 bg-red-50 px-5 py-3 text-[14px] font-bold text-red-600">BLOCKED</div>
-            )}
-            <div className="rounded-2xl border border-slate-200 bg-white px-5 py-3 text-[14px] font-semibold text-slate-950">
-              {company?.name || "Company"}
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-white px-5 py-3 text-[14px] font-semibold text-slate-950">
-              {user?.fullName || "User"}
-            </div>
+
+      <section className="ml-[250px] min-h-screen px-10 py-8">
+        <div className="mx-auto max-w-[1500px]">
+          <div className="mb-5 flex justify-end">
             <button
               onClick={() => {
                 clearAuth();
                 window.location.href = "/login";
-              }} className="rounded-2xl border border-red-200 bg-white px-5 py-3 text-[14px] font-bold text-red-600 transition hover:bg-red-50"
+              }}
+              className="h-11 rounded-[16px] border border-[#e7edf5] bg-white px-4 text-[13px] font-normal text-[#6d7b90] shadow-[0_10px_26px_rgba(15,23,42,0.035)] transition hover:bg-[#eef4ff] hover:text-[#315efb]"
             >
               Chiqish
             </button>
           </div>
-        </header>
-        {children}
-      </main>
-    </div>
+
+          <PageHeader title={title} subtitle={subtitle} />
+
+          {children}
+        </div>
+      </section>
+    </main>
   );
 }

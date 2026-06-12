@@ -1,4 +1,18 @@
-﻿@import "tailwindcss";
+@import url("https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600&display=swap");
+@import "tailwindcss";
+
+:root {
+  --bg: #f7f9fc;
+  --card: #ffffff;
+  --line: #e7edf5;
+  --line-soft: #edf2f7;
+  --text: #111827;
+  --muted: #6d7b90;
+  --muted-2: #8aa0ba;
+  --blue: #315efb;
+  --blue-soft: #eef4ff;
+  --shadow: 0 18px 46px rgba(15, 23, 42, 0.04);
+}
 
 * {
   box-sizing: border-box;
@@ -6,15 +20,19 @@
 
 html,
 body {
-  margin: 0;
   min-height: 100%;
-  font-family: Arial, sans-serif;
-  background: #f8fafc;
-  color: #020617;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Montserrat", Arial, sans-serif;
+  font-weight: 400;
 }
 
-input,
+body {
+  margin: 0;
+}
+
 button,
+input,
 select,
 textarea {
   font-family: inherit;
@@ -24,87 +42,115 @@ button {
   cursor: pointer;
 }
 
-.operix-card {
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-radius: 24px;
-  box-shadow: 0 18px 50px rgba(15, 23, 42, 0.06);
+::selection {
+  background: #dbe8ff;
+  color: #1e3a8a;
 }
 
-.operix-input {
-  width: 100%;
+.premium-page {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top right, rgba(49, 94, 251, 0.06), transparent 30%),
+    #f7f9fc;
+}
+
+.premium-card {
+  border: 1px solid var(--line);
+  background: var(--card);
+  border-radius: 28px;
+  box-shadow: var(--shadow);
+}
+
+.premium-input {
   height: 48px;
-  border: 1px solid #e2e8f0;
-  background: #ffffff;
-  color: #020617;
-  border-radius: 16px;
+  width: 100%;
+  border-radius: 18px;
+  border: 1px solid #dfe8f3;
+  background: #fff;
   padding: 0 16px;
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 400;
   outline: none;
+  transition: 0.18s ease;
 }
 
-.operix-input:focus {
-  border-color: #0ea5e9;
-  box-shadow: 0 0 0 4px rgba(14, 165, 233, 0.15);
+.premium-input:focus {
+  border-color: #9ec5fe;
+  box-shadow: 0 0 0 4px #eef5ff;
 }
 
-.operix-btn {
+.premium-label {
+  margin-bottom: 8px;
+  display: block;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+}
+
+.premium-button {
   height: 48px;
-  border: 0;
-  border-radius: 16px;
-  background: #0ea5e9;
-  color: white;
-  padding: 0 18px;
+  border-radius: 18px;
+  padding: 0 20px;
   font-size: 14px;
-  font-weight: 800;
+  font-weight: 400;
+  transition: 0.18s ease;
 }
 
-.operix-grid-stats {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 16px;
+.premium-button-primary {
+  background: var(--blue);
+  color: #fff;
+  box-shadow: 0 14px 30px rgba(49, 94, 251, 0.14);
 }
 
-.operix-grid-main {
-  display: grid;
-  grid-template-columns: 430px 1fr;
-  gap: 20px;
-  margin-top: 20px;
+.premium-button-primary:hover {
+  background: #2754de;
 }
 
-.operix-card-pad {
-  padding: 24px;
+.premium-button-soft {
+  background: #f5f7fa;
+  color: #52637a;
 }
 
-.operix-section-title {
-  margin: 0 0 18px;
-  font-size: 22px;
-  font-weight: 800;
-  letter-spacing: -0.04em;
+.premium-button-soft:hover {
+  background: #eef3f8;
+  color: #315efb;
 }
 
-.operix-stat {
-  padding: 24px;
-}
-
-.operix-stat-label {
-  font-size: 13px;
-  font-weight: 700;
-  color: #64748b;
-}
-
-.operix-stat-value {
-  margin-top: 28px;
-  font-size: 34px;
-  font-weight: 700;
-  letter-spacing: -0.06em;
-}
-
-.operix-empty {
-  padding: 36px;
-  text-align: center;
+.premium-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
   font-size: 14px;
-  font-weight: 700;
-  color: #94a3b8;
+}
+
+.premium-table thead {
+  background: #f8fafc;
+  color: var(--muted-2);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.premium-table th,
+.premium-table td {
+  padding: 16px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.premium-table thead th {
+  border-top: none;
+}
+
+.premium-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  background: var(--blue-soft);
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--blue);
 }

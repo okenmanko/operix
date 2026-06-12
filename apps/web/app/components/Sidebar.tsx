@@ -3,122 +3,86 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  BarChart3,
+  Boxes,
+  Building2,
+  CalendarClock,
+  CircleDollarSign,
+  ClipboardList,
+  CreditCard,
   Home,
+  Package,
+  QrCode,
+  ReceiptText,
+  Settings,
+  ShoppingCart,
+  Truck,
   Users,
   Wallet,
-  CreditCard,
-  BarChart3,
-  Settings,
-  Truck,
-  Package,
   Warehouse,
-  QrCode,
-  ArrowLeftRight,
-  Banknote,
-  ShoppingCart,
-  LineChart,
 } from "lucide-react";
 
-const groups = [
-  {
-    title: "STARTER",
-    items: [
-      { href: "/", label: "Dashboard", icon: Home },
-      { href: "/clients", label: "Mijozlar", icon: Users },
-      { href: "/debts", label: "Qarzlar", icon: Wallet },
-      { href: "/payments", label: "To‘lovlar", icon: CreditCard },
-      { href: "/reports", label: "Hisobotlar", icon: BarChart3 },
-    ],
-  },
-  {
-    title: "BUSINESS",
-    items: [
-      { href: "/analytics", label: "Analytics", icon: LineChart },
-      { href: "/delivery", label: "Delivery", icon: Truck },
-      { href: "/inventory", label: "Sklad", icon: Package },
-      { href: "/warehouses", label: "Skladlar", icon: Warehouse },
-      { href: "/products", label: "QR kodlar", icon: QrCode },
-      { href: "/qr-scanner", label: "QR Scanner", icon: QrCode },
-      { href: "/stock-movements", label: "Harakatlar", icon: ArrowLeftRight },
-    ],
-  },
-  {
-    title: "PRO",
-    items: [
-      { href: "/sales", label: "Sotuv POS", icon: ShoppingCart },
-      { href: "/cashflow", label: "DDS", icon: Banknote },
-    ],
-  },
+const links = [
+  { href: "/", label: "Dashboard", icon: Home },
+  { href: "/clients", label: "Mijozlar", icon: Users },
+  { href: "/debts", label: "Qarzlar", icon: ClipboardList },
+  { href: "/payments", label: "To‘lovlar", icon: CreditCard },
+  { href: "/reports", label: "Hisobotlar", icon: BarChart3 },
+  { href: "/analytics", label: "Analytics", icon: BarChart3 },
+  { href: "/inventory", label: "Inventory", icon: Boxes },
+  { href: "/products", label: "Products", icon: Package },
+  { href: "/warehouses", label: "Omborlar", icon: Warehouse },
+  { href: "/stock", label: "Stock", icon: Building2 },
+  { href: "/qr-labels", label: "QR Labels", icon: QrCode },
+  { href: "/sales", label: "Sales / POS", icon: ShoppingCart },
+  { href: "/cashflow", label: "DDS", icon: Wallet },
+  { href: "/delivery", label: "Delivery", icon: Truck },
+  { href: "/hr", label: "HR", icon: CalendarClock },
+  { href: "/billing", label: "Billing", icon: ReceiptText },
+  { href: "/settings", label: "Sozlamalar", icon: Settings },
 ];
-
-function logout() {
-  if (typeof window === "undefined") return;
-  localStorage.removeItem("operix_token");
-  localStorage.removeItem("token");
-  localStorage.removeItem("operix_user");
-  localStorage.removeItem("operix_company");
-  document.cookie = "operix_token=; path=/; max-age=0; SameSite=Lax";
-  window.location.href = "/login";
-}
 
 export default function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="fixed left-0 top-0 flex h-screen w-[230px] flex-col border-r border-slate-200 bg-white px-4 py-6">
-      <div className="mb-7 flex items-center gap-3 px-2">
-        <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-2xl bg-slate-100">
-          <img src="/logo.png" alt="Operix" className="h-full w-full object-contain" />
+    <aside className="fixed left-0 top-0 z-20 h-screen w-[250px] border-r border-[#e7edf5] bg-white/92 px-5 py-6 shadow-[10px_0_40px_rgba(15,23,42,0.025)] backdrop-blur-xl">
+      <div className="mb-8 flex items-center gap-3">
+        <div className="flex h-11 w-11 items-center justify-center rounded-[18px] bg-[#eef4ff] text-[#315efb]">
+          <span className="h-3.5 w-3.5 rounded-[6px] bg-[#315efb]" />
         </div>
         <div>
-          <h1 className="text-[17px] font-semibold tracking-[-0.03em] text-slate-950">Operix</h1>
-          <p className="text-[11px] font-bold text-slate-400">BUSINESS OS</p>
+          <h1 className="text-[18px] font-normal tracking-[-0.035em] text-[#111827]">
+            Operix
+          </h1>
+          <p className="mt-1 text-[10px] font-normal uppercase tracking-[0.22em] text-[#8aa0ba]">
+            Business OS
+          </p>
         </div>
       </div>
 
-      <nav className="flex-1 space-y-6 overflow-y-auto pr-1">
-        {groups.map((group) => (
-          <div key={group.title}>
-            <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">{group.title}</p>
-            <div className="space-y-1">
-              {group.items.map((link) => {
-                const Icon = link.icon;
-                const active = pathname === link.href || (link.href !== "/" && pathname.startsWith(link.href));
-                return (
-                  <Link
-                    key={link.href}
-                    href={link.href}
-                    className={`flex items-center gap-3 rounded-2xl px-3 py-3 text-[14px] font-semibold transition ${
-                      active ? "bg-slate-950 text-white shadow-sm" : "text-slate-500 hover:bg-slate-100 hover:text-slate-950"
-                    }`}
-                  >
-                    <Icon size={17} strokeWidth={active ? 2.2 : 1.8} className={active ? "text-white" : "text-slate-500"} />
-                    <span>{link.label}</span>
-                  </Link>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-      </nav>
+      <nav className="h-[calc(100vh-120px)] space-y-1.5 overflow-y-auto pr-1">
+        {links.map((item) => {
+          const Icon = item.icon;
+          const active =
+            item.href === "/" ? pathname === item.href : pathname.startsWith(item.href);
 
-      <div className="mt-5 space-y-2 border-t border-slate-100 pt-4">
-        <Link
-          href="/settings"
-          className={`flex items-center gap-3 rounded-2xl px-3 py-3 text-[14px] font-semibold transition ${
-            pathname === "/settings" ? "bg-slate-950 text-white shadow-sm" : "text-slate-500 hover:bg-slate-100 hover:text-slate-950"
-          }`}
-        >
-          <Settings size={17} strokeWidth={pathname === "/settings" ? 2.2 : 1.8} className={pathname === "/settings" ? "text-white" : "text-slate-500"} />
-          Sozlamalar
-        </Link>
-        <button
-          onClick={logout}
-          className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-[14px] font-bold text-red-600 transition hover:bg-red-50"
-        >
-          Chiqish
-        </button>
-      </div>
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={`flex h-11 items-center gap-3 rounded-[16px] px-3.5 text-[13px] font-normal transition ${
+                active
+                  ? "border border-[#d9e6ff] bg-[#eef4ff] text-[#315efb]"
+                  : "text-[#64748b] hover:bg-[#f5f8fc] hover:text-[#111827]"
+              }`}
+            >
+              <Icon size={17} strokeWidth={1.8} />
+              {item.label}
+            </Link>
+          );
+        })}
+      </nav>
     </aside>
   );
 }
