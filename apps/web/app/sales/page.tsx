@@ -1,32 +1,26 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { CreditCard, Wallet, Banknote } from "lucide-react";
 import AppLayout from "../components/AppLayout";
-import { apiJson } from "../lib/api";
+import { apiJson, money, dateText } from "../lib/api";
+import CustomSelect from "../components/ui/CustomSelect";
+import { Field, PremiumInput } from "../components/ui/Field";
+import { Toast } from "../components/ui/Toast";
 
-type ScanItem = {
-  id: string;
-  qrCode: string;
-  serialNumber?: string | null;
-  productName: string;
-  warehouseName?: string | null;
-  salePrice: number;
-  currency: string;
-};
+type ScanItem = { id: string; qrCode: string; productName: string; warehouseName?: string | null; salePrice: number; currency: string };
+type Sale = { id: string; saleNumber?: string | null; totalAmount: number; currency: string; method?: string | null; createdAt: string };
 
-type Sale = {
-  id: string;
-  saleNumber: string;
-  totalAmount: number;
-  currency: string;
-  method: string;
-  createdAt: string;
-  items?: any[];
-};
+const methodOptions = [
+  { value: "CASH", label: "Naqd", icon: <Banknote size={18} /> },
+  { value: "CARD", label: "Karta", icon: <CreditCard size={18} /> },
+  { value: "TRANSFER", label: "Transfer", icon: <Wallet size={18} /> },
+];
 
-function money(value: number, currency = "UZS") {
-  return `${Number(value || 0).toLocaleString("ru-RU")} ${currency}`;
-}
+const currencyOptions = [
+  { value: "UZS", label: "UZS" },
+  { value: "USD", label: "USD" },
+];
 
 export default function SalesPage() {
   const [code, setCode] = useState("");
@@ -36,166 +30,120 @@ export default function SalesPage() {
   const [currency, setCurrency] = useState("UZS");
   const [discount, setDiscount] = useState("0");
   const [customerName, setCustomerName] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [customerPhone, setCustomerPhone] = useState("");
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
 
-  const total = useMemo(() => {
-    const sum = cart.reduce((acc, item) => acc + Number(item.salePrice || 0), 0);
-    return Math.max(sum - Number(discount || 0), 0);
-  }, [cart, discount]);
+  const subtotal = useMemo(() => cart.reduce((sum, item) => sum + Number(item.salePrice || 0), 0), [cart]);
+  const total = Math.max(subtotal - Number(discount || 0), 0);
 
   async function loadSales() {
     try {
-      const data = await apiJson<{ sales: Sale[] }>(`/sales?currency=${currency}`);
-      setSales(data.sales || []);
-    } catch (e: any) {
-      setError(e?.message || "Sotuvlar yuklanmadi");
+      const data = await apiJson<Sale[]>(`/sales?currency=${currency}`);
+      setSales(Array.isArray(data) ? data : []);
+    } catch {
+      setSales([]);
     }
   }
 
-  useEffect(() => {
-    loadSales();
-  }, [currency]);
+  useEffect(() => { loadSales(); /* eslint-disable-next-line */ }, [currency]);
 
   async function scan() {
-    setError("");
-    setSuccess("");
     const clean = code.trim();
     if (!clean) return;
-    if (cart.some((item) => item.qrCode === clean || item.id === clean)) {
-      setError("Bu tovar savatda bor");
-      return;
-    }
-
     try {
-      setLoading(true);
-      const item = await apiJson<ScanItem>("/sales/scan", {
-        method: "POST",
-        body: JSON.stringify({ code: clean }),
-      });
-      setCart((prev) => [...prev, item]);
-      setCurrency(item.currency || currency);
+      setError("");
+      const item = await apiJson<ScanItem>("/sales/scan", { method: "POST", body: JSON.stringify({ code: clean }) });
+      if (cart.some((x) => x.id === item.id)) return setError("Bu QR allaqachon savatchada bor");
+      setCart((current) => [...current, item]);
       setCode("");
-    } catch (e: any) {
-      setError(e?.message || "QR topilmadi");
-    } finally {
-      setLoading(false);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "QR topilmadi");
     }
   }
 
   async function checkout() {
-    setError("");
-    setSuccess("");
-    if (!cart.length) {
-      setError("Savat bo‘sh");
-      return;
-    }
-
+    if (!cart.length) return setError("Savatcha bo‘sh");
     try {
-      setLoading(true);
-      const sale = await apiJson<Sale>("/sales/checkout", {
+      setError("");
+      await apiJson("/sales/checkout", {
         method: "POST",
         body: JSON.stringify({
           method,
           currency,
           discount: Number(discount || 0),
-          customerName: customerName.trim() || undefined,
-          items: cart.map((item) => ({ stockItemId: item.id, qrCode: item.qrCode, price: item.salePrice })),
+          customerName,
+          customerPhone,
+          items: cart.map((item) => ({ stockItemId: item.id })),
         }),
       });
-      setSuccess(`Sotuv saqlandi: ${sale.saleNumber}`);
       setCart([]);
       setDiscount("0");
       setCustomerName("");
+      setCustomerPhone("");
       await loadSales();
-    } catch (e: any) {
-      setError(e?.message || "Sotuv amalga oshmadi");
-    } finally {
-      setLoading(false);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Sotuv yakunlanmadi");
     }
   }
 
   return (
-    <AppLayout>
-      <div className="space-y-6">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-[34px] font-bold tracking-[-0.04em] text-slate-950">Sotuv POS</h1>
-            <p className="mt-2 text-[15px] font-semibold text-slate-500">QR skan → savat → sotuv → sklad minus → DDS income</p>
+    <AppLayout title="Sales / POS" subtitle="QR orqali tez sotuv, checkout va oxirgi savdolar.">
+      {error ? <Toast type="error">{error}</Toast> : null}
+
+      <div className="grid grid-cols-[1.3fr_0.7fr] gap-5">
+        <div className="premium-card p-6">
+          <h2 className="text-[22px] font-normal tracking-[-0.04em]">Sotuv savatchasi</h2>
+          <div className="mt-5 flex gap-3">
+            <input value={code} onChange={(e) => setCode(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") scan(); }} placeholder="QR kod / serial" className="premium-input" />
+            <button type="button" onClick={scan} className="premium-button premium-button-primary">Qo‘shish</button>
           </div>
-          <button onClick={loadSales} className="rounded-2xl bg-slate-950 px-6 py-4 text-sm font-bold text-white">Yangilash</button>
-        </div>
 
-        {error && <div className="rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm font-bold text-red-600">{error}</div>}
-        {success && <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-bold text-emerald-700">{success}</div>}
-
-        <div className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
-          <section className="rounded-[26px] border border-slate-200 bg-white p-6 shadow-sm">
-            <h2 className="text-xl font-bold text-slate-950">QR skan</h2>
-            <div className="mt-5 flex gap-3">
-              <input
-                value={code}
-                onChange={(e) => setCode(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && scan()}
-                autoFocus
-                placeholder="QR kod yoki serial kiriting"
-                className="h-14 flex-1 rounded-2xl border border-slate-200 px-5 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
-              />
-              <button disabled={loading} onClick={scan} className="rounded-2xl bg-blue-600 px-7 text-sm font-bold text-white disabled:opacity-60">Qo‘shish</button>
-            </div>
-
-            <div className="mt-6 overflow-hidden rounded-2xl border border-slate-100">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 text-xs uppercase tracking-[0.12em] text-slate-400">
-                  <tr><th className="p-4">Tovar</th><th>QR</th><th>Sklad</th><th>Narx</th><th></th></tr>
-                </thead>
-                <tbody>
-                  {cart.length === 0 ? (
-                    <tr><td colSpan={5} className="p-5 text-slate-400">Savat bo‘sh</td></tr>
-                  ) : cart.map((item) => (
-                    <tr key={item.id} className="border-t border-slate-100">
-                      <td className="p-4 font-bold text-slate-900">{item.productName}</td>
-                      <td className="text-slate-500">{item.qrCode}</td>
-                      <td className="text-slate-500">{item.warehouseName || "-"}</td>
-                      <td className="font-bold">{money(item.salePrice, item.currency)}</td>
-                      <td><button onClick={() => setCart((prev) => prev.filter((x) => x.id !== item.id))} className="text-red-500">O‘chirish</button></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-
-          <section className="rounded-[26px] border border-slate-200 bg-white p-6 shadow-sm">
-            <h2 className="text-xl font-bold text-slate-950">Checkout</h2>
-            <div className="mt-5 grid gap-3">
-              <select value={currency} onChange={(e) => setCurrency(e.target.value)} className="h-13 rounded-2xl border border-slate-200 px-4"><option>UZS</option><option>USD</option></select>
-              <select value={method} onChange={(e) => setMethod(e.target.value)} className="h-13 rounded-2xl border border-slate-200 px-4"><option value="CASH">Naqd</option><option value="CARD">Karta</option><option value="CLICK">Click</option><option value="PAYME">Payme</option><option value="TRANSFER">Bank</option></select>
-              <input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Mijoz nomi ixtiyoriy" className="h-13 rounded-2xl border border-slate-200 px-4" />
-              <input value={discount} onChange={(e) => setDiscount(e.target.value)} placeholder="Chegirma" type="number" className="h-13 rounded-2xl border border-slate-200 px-4" />
-            </div>
-            <div className="mt-6 rounded-3xl bg-slate-50 p-5">
-              <p className="text-sm font-bold text-slate-400">Jami</p>
-              <p className="mt-2 text-4xl font-bold tracking-[-0.05em] text-slate-950">{money(total, currency)}</p>
-            </div>
-            <button disabled={loading || !cart.length} onClick={checkout} className="mt-5 h-14 w-full rounded-2xl bg-slate-950 text-sm font-bold text-white disabled:opacity-50">Sotuvni yakunlash</button>
-          </section>
-        </div>
-
-        <section className="rounded-[26px] border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 className="text-xl font-bold text-slate-950">Oxirgi sotuvlar</h2>
-          <div className="mt-4 overflow-hidden rounded-2xl border border-slate-100">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-slate-50 text-xs uppercase tracking-[0.12em] text-slate-400"><tr><th className="p-4">Chek</th><th>Sana</th><th>Method</th><th>Summa</th></tr></thead>
+          <div className="mt-5 overflow-hidden rounded-[22px] border border-[#edf2f7]">
+            <table className="w-full text-left text-[14px]">
+              <thead className="bg-[#f8fafc] text-[11px] uppercase tracking-[0.12em] text-[#8aa0ba]">
+                <tr><th className="p-4 font-normal">Mahsulot</th><th className="p-4 font-normal">QR</th><th className="p-4 font-normal">Ombor</th><th className="p-4 font-normal">Narx</th><th className="p-4 text-right font-normal">Amal</th></tr>
+              </thead>
               <tbody>
-                {sales.length === 0 ? <tr><td colSpan={4} className="p-5 text-slate-400">Sotuv yo‘q</td></tr> : sales.map((sale) => (
-                  <tr key={sale.id} className="border-t border-slate-100"><td className="p-4 font-bold">{sale.saleNumber}</td><td>{new Date(sale.createdAt).toLocaleString()}</td><td>{sale.method}</td><td className="font-bold">{money(sale.totalAmount, sale.currency)}</td></tr>
+                {cart.map((item) => (
+                  <tr key={item.id} className="border-t border-[#edf2f7]">
+                    <td className="p-4">{item.productName}</td><td className="p-4 text-[#64748b]">{item.qrCode}</td><td className="p-4 text-[#64748b]">{item.warehouseName || "—"}</td><td className="p-4">{money(item.salePrice, item.currency || currency)}</td>
+                    <td className="p-4 text-right"><button onClick={() => setCart((current) => current.filter((x) => x.id !== item.id))} className="rounded-[14px] bg-[#f5f7fa] px-4 py-2 text-[13px] text-[#64748b]">O‘chirish</button></td>
+                  </tr>
                 ))}
+                {!cart.length ? <tr><td colSpan={5} className="p-8 text-center text-[#8aa0ba]">Savatcha bo‘sh</td></tr> : null}
               </tbody>
             </table>
           </div>
-        </section>
+        </div>
+
+        <div className="premium-card p-6">
+          <h2 className="text-[22px] font-normal tracking-[-0.04em]">Checkout</h2>
+          <div className="mt-5 space-y-4">
+            <Field label="Valyuta"><CustomSelect value={currency} onChange={setCurrency} options={currencyOptions} /></Field>
+            <Field label="To‘lov turi"><CustomSelect value={method} onChange={setMethod} options={methodOptions} /></Field>
+            <Field label="Chegirma"><PremiumInput value={discount} onChange={setDiscount} /></Field>
+            <Field label="Mijoz"><PremiumInput value={customerName} onChange={setCustomerName} /></Field>
+            <Field label="Telefon"><PremiumInput value={customerPhone} onChange={setCustomerPhone} /></Field>
+          </div>
+
+          <div className="mt-6 rounded-[22px] bg-[#f8fafc] p-5">
+            <div className="flex justify-between text-[14px] text-[#64748b]"><span>Subtotal</span><span>{money(subtotal, currency)}</span></div>
+            <div className="mt-3 flex justify-between text-[22px] font-normal text-[#111827]"><span>Total</span><span>{money(total, currency)}</span></div>
+          </div>
+          <button onClick={checkout} className="premium-button premium-button-primary mt-5 w-full">Sotuvni yakunlash</button>
+        </div>
+      </div>
+
+      <div className="premium-card mt-5 p-6">
+        <h2 className="text-[22px] font-normal tracking-[-0.04em]">Oxirgi sotuvlar</h2>
+        <div className="mt-5 overflow-hidden rounded-[22px] border border-[#edf2f7]">
+          <table className="w-full text-left text-[14px]">
+            <tbody>
+              {sales.map((sale) => <tr key={sale.id} className="border-t border-[#edf2f7]"><td className="p-4">{sale.saleNumber || sale.id.slice(0, 8)}</td><td className="p-4 text-[#64748b]">{dateText(sale.createdAt)}</td><td className="p-4 text-[#64748b]">{sale.method || "—"}</td><td className="p-4">{money(sale.totalAmount, sale.currency)}</td></tr>)}
+              {!sales.length ? <tr><td colSpan={4} className="p-8 text-center text-[#8aa0ba]">Sotuvlar yo‘q</td></tr> : null}
+            </tbody>
+          </table>
+        </div>
       </div>
     </AppLayout>
   );

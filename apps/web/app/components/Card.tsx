@@ -33,9 +33,7 @@ export function StatCard({
       <p className="mt-3 text-[28px] font-normal tracking-[-0.045em] text-[#111827]">
         {value}
       </p>
-      {hint ? (
-        <p className="mt-2 text-[12px] font-normal text-[#8aa0ba]">{hint}</p>
-      ) : null}
+      {hint ? <p className="mt-2 text-[12px] font-normal text-[#8aa0ba]">{hint}</p> : null}
     </Card>
   );
 }

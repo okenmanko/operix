@@ -1,105 +1,51 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import SuperAdminLayout from "../../components/SuperAdminLayout";
-import { apiJson, money } from "../../lib/api";
+import { Plus, Search, X } from "lucide-react";
+import { apiJson, money, num } from "../../lib/api";
+import {
+  Button,
+  Card,
+  Company,
+  Input,
+  MODULES,
+  PageTop,
+  PLANS,
+  Select,
+  STATUSES,
+  StatusBadge,
+  SuperAdminShell,
+  Toast,
+} from "../_components";
 
-const MODULES = [
-  "CRM",
-  "DEBTS",
-  "PAYMENTS",
-  "REPORTS",
-  "INVENTORY",
-  "WAREHOUSES",
-  "QR",
-  "STOCK",
-  "DELIVERY",
-  "DDS",
-  "ANALYTICS",
-  "POS",
-  "HR",
-  "KPI",
-  "AI_DIRECTOR",
-] as const;
-
-const STATUSES = ["TRIAL", "ACTIVE", "BLOCKED"] as const;
-const PLANS = ["STARTER", "SHOP", "BUSINESS", "PRO"] as const;
-
-type ModuleCode = (typeof MODULES)[number];
-
-type Company = {
-  id: string;
-  name: string;
-  phone?: string | null;
-  status: string;
-  subscriptionPlan: string;
-  enabledModules: string[];
-  clientLimit?: number | null;
-  userLimit?: number | null;
-  productLimit?: number | null;
-  warehouseLimit?: number | null;
-  monthlyPriceUZS?: number | null;
-};
-
-type CompanyForm = {
-  companyName: string;
-  companyPhone: string;
-  fullName: string;
-  phone: string;
-  password: string;
-  status: string;
-  subscriptionPlan: string;
-  monthlyPriceUZS: number;
-  clientLimit: number;
-  userLimit: number;
-  productLimit: number;
-  warehouseLimit: number;
-  enabledModules: string[];
-};
-
-const emptyForm: CompanyForm = {
-  companyName: "",
-  companyPhone: "",
-  fullName: "",
+const blank = {
+  id: "",
+  name: "",
   phone: "",
-  password: "",
   status: "TRIAL",
   subscriptionPlan: "STARTER",
-  monthlyPriceUZS: 0,
-  clientLimit: 100,
-  userLimit: 3,
-  productLimit: 100,
-  warehouseLimit: 1,
+  clientLimit: "100",
+  userLimit: "3",
+  productLimit: "100",
+  warehouseLimit: "1",
+  monthlyPriceUZS: "0",
   enabledModules: ["CRM", "DEBTS", "PAYMENTS", "REPORTS"],
 };
 
 export default function CompaniesPage() {
-  const [companies, setCompanies] = useState<Company[]>([]);
-  const [form, setForm] = useState<CompanyForm>(emptyForm);
-  const [selected, setSelected] = useState<Company | null>(null);
+  const [items, setItems] = useState<Company[]>([]);
+  const [query, setQuery] = useState("");
+  const [form, setForm] = useState<any>(blank);
+  const [modal, setModal] = useState(false);
   const [error, setError] = useState("");
-  const [showCreate, setShowCreate] = useState(false);
-  const [loading, setLoading] = useState(false);
-
-  const stats = useMemo(() => {
-    return {
-      all: companies.length,
-      active: companies.filter((company: Company) => company.status === "ACTIVE").length,
-      trial: companies.filter((company: Company) => company.status === "TRIAL").length,
-      blocked: companies.filter((company: Company) => company.status === "BLOCKED").length,
-    };
-  }, [companies]);
 
   async function load() {
     try {
-      setLoading(true);
       setError("");
       const data = await apiJson<Company[]>("/super-admin/companies");
-      setCompanies(Array.isArray(data) ? data : []);
+      setItems(Array.isArray(data) ? data : []);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to fetch");
-    } finally {
-      setLoading(false);
+      setError(err instanceof Error ? err.message : "Kompaniyalar yuklanmadi");
     }
   }
 
@@ -107,384 +53,223 @@ export default function CompaniesPage() {
     load();
   }, []);
 
-  function toggleCreateModule(module: string) {
-    setForm((current: CompanyForm) => ({
-      ...current,
-      enabledModules: current.enabledModules.includes(module)
-        ? current.enabledModules.filter((item: string) => item !== module)
-        : [...current.enabledModules, module],
-    }));
+  const filtered = useMemo(
+    () =>
+      items.filter(
+        (item) =>
+          item.name.toLowerCase().includes(query.toLowerCase()) ||
+          (item.phone || "").includes(query),
+      ),
+    [items, query],
+  );
+
+  function edit(company?: Company) {
+    if (!company) {
+      setForm(blank);
+    } else {
+      setForm({
+        id: company.id,
+        name: company.name || "",
+        phone: company.phone || "",
+        status: company.status || "TRIAL",
+        subscriptionPlan: company.subscriptionPlan || "STARTER",
+        clientLimit: String(company.clientLimit ?? 100),
+        userLimit: String(company.userLimit ?? 3),
+        productLimit: String(company.productLimit ?? 100),
+        warehouseLimit: String(company.warehouseLimit ?? 1),
+        monthlyPriceUZS: String(company.monthlyPriceUZS ?? 0),
+        enabledModules: company.enabledModules?.length ? company.enabledModules : [],
+      });
+    }
+
+    setModal(true);
   }
 
-  function toggleSelectedModule(module: string) {
-    setSelected((current: Company | null) => {
-      if (!current) return current;
+  async function save() {
+    try {
+      setError("");
+      const body = {
+        name: form.name,
+        phone: form.phone || null,
+        status: form.status,
+        subscriptionPlan: form.subscriptionPlan,
+        clientLimit: Number(form.clientLimit || 0),
+        userLimit: Number(form.userLimit || 0),
+        productLimit: Number(form.productLimit || 0),
+        warehouseLimit: Number(form.warehouseLimit || 0),
+        monthlyPriceUZS: Number(form.monthlyPriceUZS || 0),
+        enabledModules: form.enabledModules || [],
+      };
 
-      const enabledModules = current.enabledModules || [];
+      if (form.id) {
+        await apiJson(`/super-admin/companies/${form.id}`, {
+          method: "PATCH",
+          body: JSON.stringify(body),
+        });
+      } else {
+        await apiJson("/super-admin/companies", {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+      }
 
+      setModal(false);
+      await load();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Saqlanmadi");
+    }
+  }
+
+  function toggleModule(key: string) {
+    setForm((current: any) => {
+      const has = current.enabledModules.includes(key);
       return {
         ...current,
-        enabledModules: enabledModules.includes(module)
-          ? enabledModules.filter((item: string) => item !== module)
-          : [...enabledModules, module],
+        enabledModules: has
+          ? current.enabledModules.filter((item: string) => item !== key)
+          : [...current.enabledModules, key],
       };
     });
   }
 
-  async function createCompany(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    try {
-      setError("");
-      await apiJson("/super-admin/companies", {
-        method: "POST",
-        body: JSON.stringify(form),
-      });
-
-      setForm(emptyForm);
-      setShowCreate(false);
-      await load();
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Kompaniya yaratishda xatolik");
-    }
-  }
-
-  async function updateCompany() {
-    if (!selected) return;
-
-    try {
-      setError("");
-      await apiJson(`/super-admin/companies/${selected.id}`, {
-        method: "PATCH",
-        body: JSON.stringify(selected),
-      });
-
-      setSelected(null);
-      await load();
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Kompaniya yangilashda xatolik");
-    }
-  }
-
   return (
-    <SuperAdminLayout>
-      <div className="mb-8 flex items-start justify-between gap-6">
-        <div>
-          <h1 className="text-[32px] font-normal tracking-[-0.045em] text-[#111827]">
-            Kompaniyalar
-          </h1>
-          <p className="mt-2 text-[15px] font-normal leading-6 text-[#6d7b90]">
-            Tarif, status, modul va limitlarni bir joydan boshqarish.
-          </p>
-        </div>
+    <SuperAdminShell>
+      <PageTop
+        title="Kompaniyalar"
+        subtitle="Tarif, status, modul va limitlarni bitta joydan boshqaring."
+        action={
+          <Button onClick={() => edit()}>
+            <span className="inline-flex items-center gap-2">
+              <Plus size={18} /> Yangi kompaniya
+            </span>
+          </Button>
+        }
+      />
+      {error ? <Toast>{error}</Toast> : null}
 
-        <button
-          type="button"
-          onClick={() => setShowCreate((current: boolean) => !current)}
-          className="h-12 rounded-[18px] bg-[#2f6df6] px-5 text-[14px] font-normal text-white shadow-[0_14px_30px_rgba(47,109,246,0.14)] transition hover:bg-[#255fe0]"
-        >
-          + Kompaniya qo‘shish
-        </button>
-      </div>
-
-      <div className="mb-5 grid grid-cols-4 gap-4">
-        <StatCard label="Jami" value={stats.all} />
-        <StatCard label="Active" value={stats.active} />
-        <StatCard label="Trial" value={stats.trial} />
-        <StatCard label="Blocked" value={stats.blocked} />
-      </div>
-
-      {error && (
-        <div className="mb-5 rounded-[20px] border border-[#f2d5d5] bg-[#fff7f7] px-5 py-4 text-[14px] font-normal text-[#b42318]">
-          {error}
-        </div>
-      )}
-
-      {showCreate && (
-        <form
-          onSubmit={createCompany}
-          className="mb-6 rounded-[28px] border border-[#e7edf5] bg-white p-6 shadow-[0_18px_46px_rgba(15,23,42,0.035)]"
-        >
-          <div className="mb-6 flex items-center justify-between">
-            <div>
-              <h2 className="text-[22px] font-normal tracking-[-0.035em] text-[#111827]">
-                Yangi kompaniya
-              </h2>
-              <p className="mt-1 text-[13px] font-normal text-[#7d8ca2]">
-                Owner user bilan birga kompaniya ochiladi.
-              </p>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setShowCreate(false)}
-              className="h-10 rounded-[14px] bg-[#f5f7fa] px-4 text-[13px] font-normal text-[#637083] transition hover:bg-[#eef3f8]"
-            >
-              Yopish
-            </button>
+      <Card className="mb-5 p-5">
+        <div className="flex items-center gap-3">
+          <div className="flex h-12 w-12 items-center justify-center rounded-[18px] bg-[#f5f8ff] text-[#315efb]">
+            <Search size={19} />
           </div>
-
-          <div className="grid grid-cols-4 gap-4">
-            <Input label="Kompaniya" value={form.companyName} onChange={(value: string) => setForm({ ...form, companyName: value })} />
-            <Input label="Kompaniya tel" value={form.companyPhone} onChange={(value: string) => setForm({ ...form, companyPhone: value })} />
-            <Input label="Owner ism" value={form.fullName} onChange={(value: string) => setForm({ ...form, fullName: value })} />
-            <Input label="Owner tel" value={form.phone} onChange={(value: string) => setForm({ ...form, phone: value })} />
-            <Input label="Parol" value={form.password} onChange={(value: string) => setForm({ ...form, password: value })} />
-            <Select label="Status" value={form.status} options={STATUSES} onChange={(value: string) => setForm({ ...form, status: value })} />
-            <Select label="Plan" value={form.subscriptionPlan} options={PLANS} onChange={(value: string) => setForm({ ...form, subscriptionPlan: value })} />
-            <Input label="Oylik narx" type="number" value={form.monthlyPriceUZS} onChange={(value: string) => setForm({ ...form, monthlyPriceUZS: Number(value) })} />
-            <Input label="Client limit" type="number" value={form.clientLimit} onChange={(value: string) => setForm({ ...form, clientLimit: Number(value) })} />
-            <Input label="User limit" type="number" value={form.userLimit} onChange={(value: string) => setForm({ ...form, userLimit: Number(value) })} />
-            <Input label="Product limit" type="number" value={form.productLimit} onChange={(value: string) => setForm({ ...form, productLimit: Number(value) })} />
-            <Input label="Warehouse limit" type="number" value={form.warehouseLimit} onChange={(value: string) => setForm({ ...form, warehouseLimit: Number(value) })} />
-          </div>
-
-          <ModulePicker selected={form.enabledModules} onToggle={toggleCreateModule} />
-
-          <button className="mt-6 h-12 rounded-[18px] bg-[#2f6df6] px-8 text-[14px] font-normal text-white shadow-[0_14px_30px_rgba(47,109,246,0.14)] transition hover:bg-[#255fe0]">
-            Saqlash
-          </button>
-        </form>
-      )}
-
-      <div className="rounded-[28px] border border-[#e7edf5] bg-white p-6 shadow-[0_18px_46px_rgba(15,23,42,0.035)]">
-        <div className="mb-5 flex items-center justify-between">
-          <h2 className="text-[22px] font-normal tracking-[-0.035em] text-[#111827]">
-            Ro‘yxat
-          </h2>
-          <span className="text-[13px] font-normal text-[#8190a5]">
-            {loading ? "Yuklanmoqda..." : `${companies.length} ta kompaniya`}
-          </span>
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Kompaniya yoki telefon bo‘yicha qidirish"
+            className="h-12 flex-1 bg-transparent text-[15px] outline-none placeholder:text-[#9aa9bd]"
+          />
         </div>
+      </Card>
 
+      <Card className="p-6">
         <div className="overflow-hidden rounded-[22px] border border-[#edf2f7]">
           <table className="w-full text-left text-[14px]">
-            <thead className="bg-[#f8fafc] text-[11px] font-normal uppercase tracking-[0.12em] text-[#8aa0ba]">
+            <thead className="bg-[#f8fafc] text-[11px] uppercase tracking-[0.14em] text-[#8aa0ba]">
               <tr>
-                <th className="p-4">Kompaniya</th>
-                <th className="p-4">Plan</th>
-                <th className="p-4">Status</th>
-                <th className="p-4">Limit</th>
-                <th className="p-4">Narx</th>
-                <th className="p-4 text-right">Amal</th>
+                <th className="p-4 font-normal">Nomi</th>
+                <th className="p-4 font-normal">Plan</th>
+                <th className="p-4 font-normal">Status</th>
+                <th className="p-4 font-normal">Limitlar</th>
+                <th className="p-4 font-normal">Narx</th>
+                <th className="p-4 text-right font-normal">Amal</th>
               </tr>
             </thead>
-
             <tbody>
-              {companies.map((company: Company) => (
+              {filtered.map((company) => (
                 <tr key={company.id} className="border-t border-[#edf2f7]">
-                  <td className="p-4 font-normal text-[#111827]">{company.name}</td>
-                  <td className="p-4"><Badge>{company.subscriptionPlan}</Badge></td>
+                  <td className="p-4">
+                    <p>{company.name}</p>
+                    <p className="mt-1 text-[12px] text-[#8aa0ba]">{company.phone || "—"}</p>
+                  </td>
+                  <td className="p-4 text-[#64748b]">{company.subscriptionPlan}</td>
                   <td className="p-4"><StatusBadge status={company.status} /></td>
-                  <td className="p-4 font-normal text-[#64748b]">
-                    C:{company.clientLimit || "∞"} U:{company.userLimit || "∞"} P:{company.productLimit || "∞"}
+                  <td className="p-4 text-[#64748b]">
+                    C:{num(company.clientLimit)} U:{num(company.userLimit)} P:{num(company.productLimit)} W:{num(company.warehouseLimit)}
                   </td>
-                  <td className="p-4 font-normal text-[#64748b]">
-                    {money(company.monthlyPriceUZS)} so‘m
-                  </td>
+                  <td className="p-4">{money(company.monthlyPriceUZS, "UZS")}</td>
                   <td className="p-4 text-right">
-                    <button
-                      onClick={() => setSelected(company)}
-                      className="h-10 rounded-[14px] bg-[#f4f7fb] px-4 text-[13px] font-normal text-[#334155] transition hover:bg-[#eef4ff] hover:text-[#255fe0]"
-                    >
-                      Edit
-                    </button>
+                    <Button variant="soft" onClick={() => edit(company)}>Edit</Button>
                   </td>
                 </tr>
               ))}
 
-              {companies.length === 0 && (
+              {!filtered.length ? (
                 <tr>
-                  <td className="p-6 text-[#8aa0ba]" colSpan={6}>
-                    Kompaniya yo‘q
+                  <td colSpan={6} className="p-8 text-center text-[#8aa0ba]">
+                    Kompaniya topilmadi
                   </td>
                 </tr>
-              )}
+              ) : null}
             </tbody>
           </table>
         </div>
-      </div>
+      </Card>
 
-      {selected && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0f172a]/20 p-6 backdrop-blur-sm">
-          <div className="w-full max-w-[880px] rounded-[30px] bg-white p-7 shadow-[0_32px_90px_rgba(15,23,42,0.18)]">
-            <div className="mb-6 flex items-center justify-between">
+      {modal ? (
+        <div className="fixed inset-0 z-50 bg-[#0f172a]/35 backdrop-blur-[4px]">
+          <div className="absolute left-1/2 top-1/2 flex max-h-[88vh] w-[980px] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[32px] border border-[#e7edf5] bg-white shadow-[0_30px_90px_rgba(15,23,42,0.22)]">
+            <div className="flex items-center justify-between border-b border-[#edf2f7] px-7 py-5">
               <div>
-                <h2 className="text-[26px] font-normal tracking-[-0.045em] text-[#111827]">
-                  Kompaniya edit
+                <h2 className="text-[28px] font-normal tracking-[-0.05em]">
+                  {form.id ? "Kompaniya edit" : "Yangi kompaniya"}
                 </h2>
-                <p className="mt-1 text-[13px] font-normal text-[#7d8ca2]">
-                  Status, plan, limit va modullarni yangilash.
+                <p className="mt-1 text-[13px] text-[#8aa0ba]">
+                  Status, tarif, limit va modullar.
                 </p>
               </div>
-
               <button
-                onClick={() => setSelected(null)}
-                className="h-10 rounded-[14px] bg-[#f5f7fa] px-4 text-[13px] font-normal text-[#637083] transition hover:bg-[#eef3f8]"
+                onClick={() => setModal(false)}
+                className="flex h-11 w-11 items-center justify-center rounded-[16px] bg-[#f5f7fa] text-[#64748b]"
               >
-                Yopish
+                <X size={20} />
               </button>
             </div>
 
-            <div className="grid grid-cols-3 gap-4">
-              <Input label="Nomi" value={selected.name} onChange={(value: string) => setSelected({ ...selected, name: value })} />
-              <Select label="Status" value={selected.status} options={STATUSES} onChange={(value: string) => setSelected({ ...selected, status: value })} />
-              <Select label="Plan" value={selected.subscriptionPlan} options={PLANS} onChange={(value: string) => setSelected({ ...selected, subscriptionPlan: value })} />
-              <Input label="Client limit" type="number" value={selected.clientLimit || 0} onChange={(value: string) => setSelected({ ...selected, clientLimit: Number(value) })} />
-              <Input label="User limit" type="number" value={selected.userLimit || 0} onChange={(value: string) => setSelected({ ...selected, userLimit: Number(value) })} />
-              <Input label="Product limit" type="number" value={selected.productLimit || 0} onChange={(value: string) => setSelected({ ...selected, productLimit: Number(value) })} />
+            <div className="overflow-y-auto px-7 py-6">
+              <div className="grid grid-cols-3 gap-4">
+                <Input label="Nomi" value={form.name} onChange={(value) => setForm({ ...form, name: value })} />
+                <Input label="Telefon" value={form.phone} onChange={(value) => setForm({ ...form, phone: value })} />
+                <Select label="Status" value={form.status} onChange={(value) => setForm({ ...form, status: value })} options={STATUSES} />
+                <Select label="Plan" value={form.subscriptionPlan} onChange={(value) => setForm({ ...form, subscriptionPlan: value })} options={PLANS} />
+                <Input label="Client limit" value={form.clientLimit} onChange={(value) => setForm({ ...form, clientLimit: value })} />
+                <Input label="User limit" value={form.userLimit} onChange={(value) => setForm({ ...form, userLimit: value })} />
+                <Input label="Product limit" value={form.productLimit} onChange={(value) => setForm({ ...form, productLimit: value })} />
+                <Input label="Warehouse limit" value={form.warehouseLimit} onChange={(value) => setForm({ ...form, warehouseLimit: value })} />
+                <Input label="Monthly price UZS" value={form.monthlyPriceUZS} onChange={(value) => setForm({ ...form, monthlyPriceUZS: value })} />
+              </div>
+
+              <div className="mt-6 rounded-[28px] border border-[#edf2f7] bg-[#fbfdff] p-5">
+                <p className="mb-4 text-[12px] uppercase tracking-[0.16em] text-[#8aa0ba]">
+                  Modullar
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  {MODULES.map((module) => {
+                    const active = form.enabledModules.includes(module);
+                    return (
+                      <button
+                        key={module}
+                        onClick={() => toggleModule(module)}
+                        className={`h-13 rounded-[18px] border px-4 text-[14px] transition ${
+                          active
+                            ? "border-[#b9d1ff] bg-[#eef4ff] text-[#315efb]"
+                            : "border-[#e7edf5] bg-white text-[#64748b] hover:bg-[#f8fafc]"
+                        }`}
+                      >
+                        {module}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
 
-            <ModulePicker selected={selected.enabledModules || []} onToggle={toggleSelectedModule} />
-
-            <div className="mt-7 flex justify-end gap-3">
-              <button
-                onClick={() => setSelected(null)}
-                className="h-12 rounded-[18px] bg-[#f5f7fa] px-6 text-[14px] font-normal text-[#52637a] transition hover:bg-[#eef3f8]"
-              >
-                Bekor
-              </button>
-
-              <button
-                onClick={updateCompany}
-                className="h-12 rounded-[18px] bg-[#2f6df6] px-7 text-[14px] font-normal text-white shadow-[0_14px_30px_rgba(47,109,246,0.14)] transition hover:bg-[#255fe0]"
-              >
-                Saqlash
-              </button>
+            <div className="flex justify-end gap-3 border-t border-[#edf2f7] bg-white px-7 py-5">
+              <Button variant="soft" onClick={() => setModal(false)}>Bekor</Button>
+              <Button onClick={save}>Saqlash</Button>
             </div>
           </div>
         </div>
-      )}
-    </SuperAdminLayout>
-  );
-}
-
-function StatCard({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-[22px] border border-[#e7edf5] bg-white p-5 shadow-[0_12px_32px_rgba(15,23,42,0.03)]">
-      <p className="text-[12px] font-normal uppercase tracking-[0.12em] text-[#8aa0ba]">
-        {label}
-      </p>
-      <p className="mt-3 text-[28px] font-normal tracking-[-0.045em] text-[#111827]">
-        {value}
-      </p>
-    </div>
-  );
-}
-
-function Input({
-  label,
-  value,
-  onChange,
-  type = "text",
-}: {
-  label: string;
-  value: string | number | null | undefined;
-  onChange: (value: string) => void;
-  type?: string;
-}) {
-  return (
-    <label className="block">
-      <span className="mb-2 block text-[11px] font-normal uppercase tracking-[0.12em] text-[#8aa0ba]">
-        {label}
-      </span>
-
-      <input
-        type={type}
-        value={value ?? ""}
-        onChange={(event: React.ChangeEvent<HTMLInputElement>) => onChange(event.target.value)}
-        className="h-12 w-full rounded-[18px] border border-[#dfe8f3] bg-white px-4 text-[14px] font-normal outline-none transition focus:border-[#9ec5fe] focus:ring-4 focus:ring-[#eef5ff]"
-      />
-    </label>
-  );
-}
-
-function Select({
-  label,
-  value,
-  onChange,
-  options,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  options: readonly string[];
-}) {
-  return (
-    <label className="block">
-      <span className="mb-2 block text-[11px] font-normal uppercase tracking-[0.12em] text-[#8aa0ba]">
-        {label}
-      </span>
-
-      <select
-        value={value}
-        onChange={(event: React.ChangeEvent<HTMLSelectElement>) => onChange(event.target.value)}
-        className="h-12 w-full rounded-[18px] border border-[#dfe8f3] bg-white px-4 text-[14px] font-normal outline-none transition focus:border-[#9ec5fe] focus:ring-4 focus:ring-[#eef5ff]"
-      >
-        {options.map((option: string) => (
-          <option key={option}>{option}</option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
-function ModulePicker({
-  selected,
-  onToggle,
-}: {
-  selected: string[];
-  onToggle: (module: string) => void;
-}) {
-  return (
-    <div className="mt-6 rounded-[24px] border border-[#edf2f7] bg-[#fbfdff] p-5">
-      <p className="mb-4 text-[13px] font-normal uppercase tracking-[0.12em] text-[#8aa0ba]">
-        Modullar
-      </p>
-
-      <div className="grid grid-cols-2 gap-3">
-        {MODULES.map((module: ModuleCode) => {
-          const active = selected.includes(module);
-
-          return (
-            <button
-              type="button"
-              key={module}
-              onClick={() => onToggle(module)}
-              className={`flex h-[64px] items-center justify-center rounded-[20px] px-4 text-[15px] font-normal tracking-[-0.01em] transition ${
-                active
-                  ? "border border-[#b8ccff] bg-[#eef4ff] text-[#315efb] shadow-[0_10px_24px_rgba(49,94,251,0.10)]"
-                  : "border border-[#e6edf5] bg-white text-[#617186] hover:border-[#cddcf0] hover:bg-[#f5f9ff] hover:text-[#315efb]"
-              }`}
-            >
-              {module}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function Badge({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="rounded-full bg-[#eef4ff] px-3 py-1.5 text-[12px] font-normal text-[#315efb]">
-      {children}
-    </span>
-  );
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const className =
-    status === "ACTIVE"
-      ? "bg-[#ecfdf5] text-[#047857]"
-      : status === "TRIAL"
-        ? "bg-[#fffbeb] text-[#b45309]"
-        : "bg-[#f8fafc] text-[#64748b]";
-
-  return (
-    <span className={`rounded-full px-3 py-1.5 text-[12px] font-normal ${className}`}>
-      {status}
-    </span>
+      ) : null}
+    </SuperAdminShell>
   );
 }

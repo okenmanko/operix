@@ -5,9 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   BarChart3,
   Boxes,
-  Building2,
   CalendarClock,
-  CircleDollarSign,
   ClipboardList,
   CreditCard,
   Home,
@@ -20,6 +18,7 @@ import {
   Users,
   Wallet,
   Warehouse,
+  ArrowLeftRight,
 } from "lucide-react";
 
 const links = [
@@ -32,7 +31,7 @@ const links = [
   { href: "/inventory", label: "Inventory", icon: Boxes },
   { href: "/products", label: "Products", icon: Package },
   { href: "/warehouses", label: "Omborlar", icon: Warehouse },
-  { href: "/stock", label: "Stock", icon: Building2 },
+  { href: "/stock-movements", label: "Stock Movement", icon: ArrowLeftRight },
   { href: "/qr-labels", label: "QR Labels", icon: QrCode },
   { href: "/sales", label: "Sales / POS", icon: ShoppingCart },
   { href: "/cashflow", label: "DDS", icon: Wallet },
@@ -46,7 +45,7 @@ export default function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="fixed left-0 top-0 z-20 h-screen w-[250px] border-r border-[#e7edf5] bg-white/92 px-5 py-6 shadow-[10px_0_40px_rgba(15,23,42,0.025)] backdrop-blur-xl">
+    <aside className="fixed left-0 top-0 z-20 h-screen w-[250px] border-r border-[#e7edf5] bg-white/95 px-5 py-6 shadow-[10px_0_40px_rgba(15,23,42,0.025)] backdrop-blur-xl">
       <div className="mb-8 flex items-center gap-3">
         <div className="flex h-11 w-11 items-center justify-center rounded-[18px] bg-[#eef4ff] text-[#315efb]">
           <span className="h-3.5 w-3.5 rounded-[6px] bg-[#315efb]" />
@@ -64,8 +63,7 @@ export default function Sidebar() {
       <nav className="h-[calc(100vh-120px)] space-y-1.5 overflow-y-auto pr-1">
         {links.map((item) => {
           const Icon = item.icon;
-          const active =
-            item.href === "/" ? pathname === item.href : pathname.startsWith(item.href);
+          const active = item.href === "/" ? pathname === item.href : pathname.startsWith(item.href);
 
           return (
             <Link

@@ -1,277 +1,149 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import {
-  Cell,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-} from "recharts";
+import { useEffect, useState } from "react";
 import AppLayout from "./components/AppLayout";
-import StatCard from "./components/StatCard";
+import { apiJson, money } from "./lib/api";
 
-type TopDebtor = {
-  id: string;
-  amount: number;
-  currency: string;
-  paidAmount: number;
-  remainingAmount: number;
-  status: string;
-  client: {
-    fullName: string;
-    phone: string;
-  };
+type Dashboard = {
+  clientsCount?: number;
+  debtsCount?: number;
+  paymentsCount?: number;
+  totalDebtsUZS?: number;
+  totalDebtsUSD?: number;
+  totalPaidUZS?: number;
+  totalPaidUSD?: number;
+  remainingUZS?: number;
+  remainingUSD?: number;
+  todayPayments?: number;
+  activeDebts?: number;
+  closedDebts?: number;
+  overdueDebts?: number;
+  topDebtors?: { id?: string; fullName?: string; phone?: string; total?: number; currency?: string }[];
 };
 
-type Stats = {
-  clientsCount: number;
-  debtsCount: number;
-  paymentsCount: number;
-
-  totalDebtsUZS: number;
-  totalDebtsUSD: number;
-  totalPaidUZS: number;
-  totalPaidUSD: number;
-  remainingUZS: number;
-  remainingUSD: number;
-
-  todayPaymentsUZS: number;
-  todayPaymentsUSD: number;
-
-  activeDebtsCount: number;
-  closedDebtsCount: number;
-  overdueDebtsCount: number;
-
-  topDebtors: TopDebtor[];
+const empty: Dashboard = {
+  clientsCount: 0,
+  debtsCount: 0,
+  paymentsCount: 0,
+  totalDebtsUZS: 0,
+  totalDebtsUSD: 0,
+  totalPaidUZS: 0,
+  totalPaidUSD: 0,
+  remainingUZS: 0,
+  remainingUSD: 0,
+  todayPayments: 0,
+  activeDebts: 0,
+  closedDebts: 0,
+  overdueDebts: 0,
+  topDebtors: [],
 };
-
-const STATUS_COLORS = ["#60A5FA", "#34D399", "#F87171"];
-
-function money(value: number) {
-  return Number(value || 0).toLocaleString("ru-RU");
-}
 
 export default function DashboardPage() {
-  const [stats, setStats] = useState<Stats | null>(null);
+  const [data, setData] = useState<Dashboard>(empty);
+  const [error, setError] = useState("");
+
+  async function load() {
+    try {
+      setError("");
+      const result = await apiJson<Dashboard>("/dashboard");
+      setData({ ...empty, ...(result || {}) });
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Dashboard yuklanmadi");
+    }
+  }
 
   useEffect(() => {
-    const storedUser = localStorage.getItem("user");
-    const user = storedUser ? JSON.parse(storedUser) : null;
-
-    fetch(`http://localhost:4000/dashboard?companyId=${user?.companyId || ""}`).then((res) => res.json())
-      .then(setStats)
-      .catch(console.error);
+    load();
   }, []);
 
-  const statusData = useMemo(
-    () => [
-      {
-        name: "Active",
-        value: stats?.activeDebtsCount ?? 0,
-      },
-      {
-        name: "Closed",
-        value: stats?.closedDebtsCount ?? 0,
-      },
-      {
-        name: "Overdue",
-        value: stats?.overdueDebtsCount ?? 0,
-      },
-    ],
-    [stats],
-  );
-
   return (
-    <AppLayout
-      title="Dashboard"
-      subtitle="Qarzdorlar, to‘lovlar va qoldiq nazorati"
-    >
+    <AppLayout title="Dashboard" subtitle="Operix core ko‘rsatkichlari: mijozlar, qarzlar, to‘lovlar va aktivlik.">
+      {error ? <ErrorBox text={error} /> : null}
+
       <div className="grid grid-cols-4 gap-4">
-        <StatCard title="Mijozlar" value={stats?.clientsCount ?? 0} />
-        <StatCard title="Faol qarzlar" value={stats?.activeDebtsCount ?? 0} />
-        <StatCard title="Yopilgan qarzlar" value={stats?.closedDebtsCount ?? 0} />
-        <StatCard title="Kechikkanlar" value={stats?.overdueDebtsCount ?? 0} />
+        <Stat label="Mijozlar" value={data.clientsCount || 0} />
+        <Stat label="Qarzlar" value={data.debtsCount || 0} />
+        <Stat label="To‘lovlar" value={data.paymentsCount || 0} />
+        <Stat label="Bugungi to‘lov" value={money(data.todayPayments, "UZS")} />
       </div>
 
-      <div className="mt-5 grid grid-cols-2 gap-4">
-        <MoneyPanel
-          title="UZS hisoboti"
-          total={stats?.totalDebtsUZS ?? 0}
-          paid={stats?.totalPaidUZS ?? 0}
-          remaining={stats?.remainingUZS ?? 0}
-          today={stats?.todayPaymentsUZS ?? 0}
-          currency="UZS"
-        />
+      <div className="mt-5 grid grid-cols-3 gap-5">
+        <Panel title="UZS balans">
+          <Metric label="Jami qarz" value={money(data.totalDebtsUZS, "UZS")} />
+          <Metric label="To‘langan" value={money(data.totalPaidUZS, "UZS")} />
+          <Metric label="Qoldiq" value={money(data.remainingUZS, "UZS")} />
+        </Panel>
 
-        <MoneyPanel
-          title="USD hisoboti"
-          total={stats?.totalDebtsUSD ?? 0}
-          paid={stats?.totalPaidUSD ?? 0}
-          remaining={stats?.remainingUSD ?? 0}
-          today={stats?.todayPaymentsUSD ?? 0}
-          currency="USD"
-        />
+        <Panel title="USD balans">
+          <Metric label="Jami qarz" value={money(data.totalDebtsUSD, "USD")} />
+          <Metric label="To‘langan" value={money(data.totalPaidUSD, "USD")} />
+          <Metric label="Qoldiq" value={money(data.remainingUSD, "USD")} />
+        </Panel>
+
+        <Panel title="Qarz statuslari">
+          <Metric label="Aktiv" value={String(data.activeDebts || 0)} />
+          <Metric label="Yopilgan" value={String(data.closedDebts || 0)} />
+          <Metric label="Muddati o‘tgan" value={String(data.overdueDebts || 0)} />
+        </Panel>
       </div>
 
-      <div className="mt-5 grid grid-cols-5 gap-4">
-        <div className="col-span-2">
-          <ChartCard
-            title="Qarz holatlari"
-            subtitle="Active, closed va kechikkan qarzlar"
-          >
-            <ResponsiveContainer width="100%" height={260}>
-              <PieChart>
-                <Pie
-                  data={statusData}
-                  dataKey="value"
-                  nameKey="name"
-                  innerRadius={72}
-                  outerRadius={100}
-                  paddingAngle={4}
-                >
-                  {statusData.map((_, index) => (
-                    <Cell key={index} fill={STATUS_COLORS[index]} />
-                  ))}
-                </Pie>
-
-                <Tooltip
-                  formatter={(value: any) => [`${Number(value)} ta`, "Qarz"]}
-                />
-              </PieChart>
-            </ResponsiveContainer>
-
-            <div className="mt-3 grid grid-cols-3 gap-3">
-              <LegendItem label="Active" value={`${stats?.activeDebtsCount ?? 0} ta`} />
-              <LegendItem label="Closed" value={`${stats?.closedDebtsCount ?? 0} ta`} />
-              <LegendItem label="Overdue" value={`${stats?.overdueDebtsCount ?? 0} ta`} />
-            </div>
-          </ChartCard>
-        </div>
-
-        <div className="col-span-3 rounded-[20px] border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="mb-4">
-            <h2 className="text-[18px] font-semibold text-slate-950">
-              Top qarzdorlar
-            </h2>
-            <p className="mt-1 text-[13px] font-medium text-slate-400">
-              Valyutalar aralashtirilmasdan ko‘rsatiladi
-            </p>
-          </div>
-
-          <div className="divide-y divide-slate-100">
-            {(stats?.topDebtors ?? []).map((debt) => (
-              <div
-                key={debt.id}
-                className="flex items-center justify-between py-4"
-              >
-                <div>
-                  <p className="text-[15px] font-semibold text-slate-950">
-                    {debt.client.fullName}
-                  </p>
-                  <p className="mt-1 text-[12px] font-medium text-slate-400">
-                    {debt.client.phone}
-                  </p>
-                </div>
-
-                <div className="text-right">
-                  <p className="text-[15px] font-semibold text-sky-600">
-                    {money(debt.remainingAmount)} {debt.currency}
-                  </p>
-                  <p className="mt-1 text-[12px] font-medium text-slate-400">
-                    {debt.status}
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
+      <div className="premium-card mt-5 p-6">
+        <h2 className="text-[22px] font-normal tracking-[-0.04em]">Top qarzdorlar</h2>
+        <div className="mt-5 overflow-hidden rounded-[22px] border border-[#edf2f7]">
+          <table className="w-full text-left text-[14px]">
+            <thead className="bg-[#f8fafc] text-[11px] uppercase tracking-[0.12em] text-[#8aa0ba]">
+              <tr>
+                <th className="p-4 font-normal">Mijoz</th>
+                <th className="p-4 font-normal">Telefon</th>
+                <th className="p-4 font-normal">Qarz</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(data.topDebtors || []).map((item, index) => (
+                <tr key={item.id || index} className="border-t border-[#edf2f7]">
+                  <td className="p-4">{item.fullName || "—"}</td>
+                  <td className="p-4 text-[#64748b]">{item.phone || "—"}</td>
+                  <td className="p-4">{money(item.total, item.currency || "UZS")}</td>
+                </tr>
+              ))}
+              {!(data.topDebtors || []).length ? (
+                <tr><td colSpan={3} className="p-8 text-center text-[#8aa0ba]">Top qarzdorlar yo‘q</td></tr>
+              ) : null}
+            </tbody>
+          </table>
         </div>
       </div>
     </AppLayout>
   );
 }
 
-function MoneyPanel({
-  title,
-  total,
-  paid,
-  remaining,
-  today,
-  currency,
-}: {
-  title: string;
-  total: number;
-  paid: number;
-  remaining: number;
-  today: number;
-  currency: string;
-}) {
-  return (
-    <div className="rounded-[20px] border border-slate-200 bg-white p-5 shadow-sm">
-      <h2 className="text-[18px] font-semibold text-slate-950">{title}</h2>
+function ErrorBox({ text }: { text: string }) {
+  return <div className="mb-5 rounded-[22px] border border-red-200 bg-red-50 px-5 py-4 text-red-600">{text}</div>;
+}
 
-      <div className="mt-5 grid grid-cols-2 gap-3">
-        <MiniMoney title="Jami qarz" value={total} currency={currency} />
-        <MiniMoney title="To‘langan" value={paid} currency={currency} green />
-        <MiniMoney title="Qoldiq" value={remaining} currency={currency} blue />
-        <MiniMoney title="Bugungi tushum" value={today} currency={currency} />
-      </div>
+function Stat({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="premium-card p-5">
+      <p className="text-[12px] uppercase tracking-[0.12em] text-[#8aa0ba]">{label}</p>
+      <p className="mt-3 text-[28px] tracking-[-0.04em]">{value}</p>
     </div>
   );
 }
 
-function MiniMoney({
-  title,
-  value,
-  currency,
-  green,
-  blue,
-}: {
-  title: string;
-  value: number;
-  currency: string;
-  green?: boolean;
-  blue?: boolean;
-}) {
+function Panel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-[16px] bg-slate-50 p-4">
-      <p className="text-[12px] font-medium text-slate-400">{title}</p>
-      <p
-        className={`mt-2 text-[18px] font-semibold tracking-[-0.03em] ${green ? "text-emerald-600" : blue ? "text-sky-600" : "text-slate-900"
-          }`}
-      >
-        {money(value)} {currency}
-      </p>
+    <div className="premium-card p-6">
+      <h2 className="text-[22px] font-normal tracking-[-0.04em]">{title}</h2>
+      <div className="mt-5 space-y-3">{children}</div>
     </div>
   );
 }
 
-function ChartCard({
-  title,
-  subtitle,
-  children,
-}: {
-  title: string;
-  subtitle: string;
-  children: React.ReactNode;
-}) {
+function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-[20px] border border-slate-200 bg-white p-5 shadow-sm">
-      <h2 className="text-[18px] font-semibold text-slate-950">{title}</h2>
-      <p className="mt-1 text-[13px] font-medium text-slate-400">
-        {subtitle}
-      </p>
-
-      <div className="mt-4">{children}</div>
-    </div>
-  );
-}
-
-function LegendItem({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-2xl bg-slate-50 px-4 py-3">
-      <p className="text-[12px] font-medium text-slate-400">{label}</p>
-      <p className="mt-1 text-[13px] font-semibold text-slate-900">{value}</p>
+    <div className="flex items-center justify-between rounded-[18px] bg-[#f8fafc] px-4 py-3">
+      <span className="text-[13px] text-[#64748b]">{label}</span>
+      <span className="text-[14px] text-[#111827]">{value}</span>
     </div>
   );
 }

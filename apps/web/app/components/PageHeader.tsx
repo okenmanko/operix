@@ -19,7 +19,6 @@ export default function PageHeader({ title, subtitle, action }: PageHeaderProps)
           </p>
         ) : null}
       </div>
-
       {action ? <div className="shrink-0">{action}</div> : null}
     </div>
   );

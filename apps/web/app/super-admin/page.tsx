@@ -1,36 +1,5 @@
 "use client";
-
-import { useEffect, useState } from "react";
-import SuperAdminLayout from "../components/SuperAdminLayout";
-import { apiJson, money } from "../lib/api";
-
-type Summary = { companies: number; active: number; trial: number; blocked: number; users: number };
-
-export default function SuperAdminPage() {
-  const [summary, setSummary] = useState<Summary>({ companies: 0, active: 0, trial: 0, blocked: 0, users: 0 });
-  const [error, setError] = useState("");
-
-  async function load() {
-    try { setError(""); setSummary(await apiJson<Summary>("/super-admin/summary")); }
-    catch (e: any) { setError(e.message || "Failed to fetch"); }
-  }
-  useEffect(() => { load(); }, []);
-
-  return (
-    <SuperAdminLayout>
-      <div className="mb-8 flex items-start justify-between">
-        <div><h1 className="text-[36px] font-black tracking-[-0.05em]">Super Admin</h1><p className="mt-2 text-[15px] font-semibold text-[#6c7d95]">Kompaniyalar, userlar, tariflar va SaaS nazorati</p></div>
-        <a href="/super-admin/companies" className="rounded-2xl bg-[#2563eb] px-5 py-3 text-[14px] font-bold text-white shadow-[0_12px_30px_rgba(37,99,235,0.18)] transition hover:bg-[#1d4ed8]">Kompaniya qo‘shish</a>
-      </div>
-      {error && <div className="mb-6 rounded-2xl border border-[#ffd7d7] bg-[#fff5f5] px-5 py-4 text-sm font-bold text-[#dc2626]">{error}</div>}
-      <div className="grid grid-cols-5 gap-4">
-        <Card label="Kompaniyalar" value={summary.companies} /><Card label="Active" value={summary.active} /><Card label="Trial" value={summary.trial} /><Card label="Blocked" value={summary.blocked} /><Card label="Userlar" value={summary.users} />
-      </div>
-      <div className="mt-6 rounded-[28px] border border-[#e6edf5] bg-white p-7 shadow-[0_16px_40px_rgba(15,23,42,0.04)]">
-        <h2 className="text-[22px] font-black tracking-[-0.04em]">Operix SaaS boshqaruvi</h2>
-        <p className="mt-3 max-w-3xl text-[14px] font-semibold leading-7 text-[#6c7d95]">Bu panel orqali kompaniya yaratish, status, plan, modullar va limitlarni boshqarish mumkin. Keyingi patchda billing va subscription lifecycle to‘liq real ishlaydi.</p>
-      </div>
-    </SuperAdminLayout>
-  );
-}
-function Card({ label, value }: { label: string; value: number }) { return <div className="rounded-[24px] border border-[#e6edf5] bg-white p-5 shadow-[0_12px_32px_rgba(15,23,42,0.035)]"><p className="text-[12px] font-black uppercase tracking-[0.12em] text-[#8ba0bb]">{label}</p><p className="mt-4 text-[32px] font-black tracking-[-0.05em]">{money(value)}</p></div>; }
+import {useEffect,useMemo,useState} from "react";import Link from "next/link";import {Building2,CheckCircle2,Clock3,Lock,Plus,Users} from "lucide-react";import {apiJson,num} from "../lib/api";import {Button,Card,Company,PageTop,StatusBadge,SuperAdminShell,Toast,User} from "./_components";
+export default function Page(){const[companies,setCompanies]=useState<Company[]>([]);const[users,setUsers]=useState<User[]>([]);const[error,setError]=useState("");async function load(){try{setError("");const[c,u]=await Promise.all([apiJson<Company[]>("/super-admin/companies"),apiJson<User[]>("/super-admin/users")]);setCompanies(Array.isArray(c)?c:[]);setUsers(Array.isArray(u)?u:[])}catch(e:any){setError(e.message)}}useEffect(()=>{load()},[]);const s=useMemo(()=>({companies:companies.length,active:companies.filter(x=>x.status==="ACTIVE").length,trial:companies.filter(x=>x.status==="TRIAL").length,blocked:companies.filter(x=>x.status==="BLOCKED").length,users:users.length}),[companies,users]);return <SuperAdminShell><PageTop title="Super Admin" subtitle="Kompaniyalar, userlar, tariflar, modullar va SaaS nazorati." action={<Link href="/super-admin/companies"><Button><span className="inline-flex items-center gap-2"><Plus size={18}/> Kompaniya qo‘shish</span></Button></Link>}/>{error?<Toast>{error}</Toast>:null}<div className="grid grid-cols-5 gap-4"><Stat icon={<Building2 size={20}/>} label="Kompaniyalar" value={s.companies}/><Stat icon={<CheckCircle2 size={20}/>} label="Active" value={s.active}/><Stat icon={<Clock3 size={20}/>} label="Trial" value={s.trial}/><Stat icon={<Lock size={20}/>} label="Blocked" value={s.blocked}/><Stat icon={<Users size={20}/>} label="Userlar" value={s.users}/></div><div className="mt-6 grid grid-cols-[1.15fr_0.85fr] gap-5"><Card className="p-6"><h2 className="text-[24px] font-normal tracking-[-0.04em]">SaaS boshqaruvi</h2><div className="mt-5 overflow-hidden rounded-[22px] border border-[#edf2f7]"><table className="w-full text-left text-[14px]"><thead className="bg-[#f8fafc] text-[11px] uppercase tracking-[0.14em] text-[#8aa0ba]"><tr><th className="p-4 font-normal">Kompaniya</th><th className="p-4 font-normal">Plan</th><th className="p-4 font-normal">Status</th><th className="p-4 font-normal">Modul</th></tr></thead><tbody>{companies.slice(0,7).map(c=><tr key={c.id} className="border-t border-[#edf2f7]"><td className="p-4">{c.name}</td><td className="p-4 text-[#64748b]">{c.subscriptionPlan}</td><td className="p-4"><StatusBadge status={c.status}/></td><td className="p-4 text-[#64748b]">{c.enabledModules?.length||0}</td></tr>)}</tbody></table></div></Card><Card className="p-6"><h2 className="text-[24px] font-normal tracking-[-0.04em]">Company Health</h2><div className="mt-5 space-y-3">{companies.slice(0,5).map(c=>{const score=Math.min(100,Math.max(10,(c.status==="ACTIVE"?45:c.status==="TRIAL"?25:5)+(c.enabledModules?.length||0)*3+(c.subscriptionPlan==="PRO"?20:c.subscriptionPlan==="BUSINESS"?12:5)));return <Health key={c.id} name={c.name} score={score}/>})}</div></Card></div></SuperAdminShell>}
+function Stat({icon,label,value}:{icon:React.ReactNode;label:string;value:number}){return <Card className="p-5"><div className="flex h-10 w-10 items-center justify-center rounded-[16px] bg-[#eef4ff] text-[#315efb]">{icon}</div><p className="mt-5 text-[12px] uppercase tracking-[0.16em] text-[#8aa0ba]">{label}</p><p className="mt-2 text-[32px] tracking-[-0.055em]">{num(value)} <span className="text-[16px] text-[#8aa0ba]">ta</span></p></Card>}
+function Health({name,score}:{name:string;score:number}){return <div className="rounded-[22px] border border-[#edf2f7] bg-[#fbfdff] p-4"><div className="flex justify-between text-[14px]"><span>{name}</span><span>{score}%</span></div><div className="mt-3 h-2 overflow-hidden rounded-full bg-[#eef2f7]"><div className="h-full rounded-full bg-[#315efb]" style={{width:`${score}%`}}/></div></div>}

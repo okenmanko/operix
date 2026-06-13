@@ -1,17 +1,168 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import SuperAdminLayout from "../../components/SuperAdminLayout";
+import { useEffect, useMemo, useState } from "react";
 import { apiJson } from "../../lib/api";
+import {
+  Button,
+  Card,
+  Company,
+  Input,
+  PageTop,
+  ROLES,
+  Select,
+  StatusBadge,
+  SuperAdminShell,
+  Toast,
+  User,
+} from "../_components";
 
-type User = { id: string; fullName: string; phone: string; role: string; isActive: boolean; company?: { id: string; name: string } };
 export default function UsersPage() {
-  const [users, setUsers] = useState<User[]>([]); const [companies, setCompanies] = useState<any[]>([]); const [error, setError] = useState("");
-  const [form, setForm] = useState({ companyId: "", fullName: "", phone: "", password: "", role: "MANAGER" });
-  async function load() { try { const [u, c] = await Promise.all([apiJson<User[]>("/super-admin/users"), apiJson<any[]>("/super-admin/companies")]); setUsers(Array.isArray(u) ? u : []); setCompanies(Array.isArray(c) ? c : []); if (!form.companyId && c?.[0]?.id) setForm((old) => ({ ...old, companyId: c[0].id })); } catch (e: any) { setError(e.message || "Failed to fetch"); } }
-  useEffect(() => { load(); }, []);
-  async function createUser(e: React.FormEvent) { e.preventDefault(); await apiJson("/super-admin/users", { method: "POST", body: JSON.stringify(form) }); setForm({ ...form, fullName: "", phone: "", password: "" }); await load(); }
-  async function updateUser(id: string, body: any) { await apiJson(`/super-admin/users/${id}`, { method: "PATCH", body: JSON.stringify(body) }); await load(); }
-  return <SuperAdminLayout><div className="mb-7"><h1 className="text-[36px] font-black tracking-[-0.05em]">User Management</h1><p className="mt-2 text-[15px] font-semibold text-[#6c7d95]">Kompaniya userlari, rollar va aktivlik</p></div>{error && <div className="mb-6 rounded-2xl border border-[#ffd7d7] bg-[#fff5f5] px-5 py-4 text-sm font-bold text-[#dc2626]">{error}</div>}<form onSubmit={createUser} className="mb-6 rounded-[28px] border border-[#e6edf5] bg-white p-6 shadow-[0_16px_40px_rgba(15,23,42,0.04)]"><h2 className="mb-5 text-[22px] font-black tracking-[-0.04em]">User yaratish</h2><div className="grid grid-cols-5 gap-4"><label><span className="mb-2 block text-[11px] font-black uppercase tracking-[0.12em] text-[#8ba0bb]">Kompaniya</span><select className="h-12 w-full rounded-2xl border border-[#dfe8f3] px-4 text-[14px] font-semibold outline-none focus:border-[#93c5fd]" value={form.companyId} onChange={(e) => setForm({ ...form, companyId: e.target.value })}>{companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label><Input label="Ism" value={form.fullName} onChange={(v: string) => setForm({ ...form, fullName: v })} /><Input label="Telefon" value={form.phone} onChange={(v: string) => setForm({ ...form, phone: v })} /><Input label="Parol" value={form.password} onChange={(v: string) => setForm({ ...form, password: v })} /><label><span className="mb-2 block text-[11px] font-black uppercase tracking-[0.12em] text-[#8ba0bb]">Role</span><select className="h-12 w-full rounded-2xl border border-[#dfe8f3] px-4 text-[14px] font-semibold outline-none focus:border-[#93c5fd]" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>{["OWNER", "ADMIN", "MANAGER", "CASHIER", "STOREKEEPER", "HR", "ACCOUNTANT"].map((r) => <option key={r}>{r}</option>)}</select></label></div><button className="mt-6 h-12 rounded-2xl bg-[#2563eb] px-8 text-[14px] font-black text-white shadow-[0_12px_30px_rgba(37,99,235,0.16)]">Saqlash</button></form><div className="rounded-[28px] border border-[#e6edf5] bg-white p-6 shadow-[0_16px_40px_rgba(15,23,42,0.04)]"><table className="w-full text-left text-[14px]"><thead className="bg-[#f8fbff] text-[11px] font-black uppercase tracking-[0.12em] text-[#8ba0bb]"><tr><th className="p-4">Ism</th><th className="p-4">Telefon</th><th className="p-4">Kompaniya</th><th className="p-4">Role</th><th className="p-4">Status</th><th className="p-4 text-right">Amal</th></tr></thead><tbody>{users.map((u) => <tr key={u.id} className="border-t border-[#edf2f7]"><td className="p-4 font-black">{u.fullName}</td><td className="p-4 font-semibold text-[#64748b]">{u.phone}</td><td className="p-4 font-semibold text-[#64748b]">{u.company?.name}</td><td className="p-4"><select value={u.role} onChange={(e) => updateUser(u.id, { role: e.target.value })} className="rounded-xl border border-[#dfe8f3] bg-white px-3 py-2 text-[13px] font-bold outline-none">{["OWNER", "ADMIN", "MANAGER", "CASHIER", "STOREKEEPER", "HR", "ACCOUNTANT"].map((r) => <option key={r}>{r}</option>)}</select></td><td className="p-4"><span className={`rounded-full px-3 py-1.5 text-[12px] font-black ${u.isActive ? "bg-[#ecfdf5] text-[#047857]" : "bg-[#f8fafc] text-[#64748b]"}`}>{u.isActive ? "ACTIVE" : "BLOCKED"}</span></td><td className="p-4 text-right"><button onClick={() => updateUser(u.id, { isActive: !u.isActive })} className="rounded-xl bg-[#f3f7fb] px-4 py-2 text-[13px] font-black text-[#334155] transition hover:bg-[#eaf2ff] hover:text-[#1d4ed8]">{u.isActive ? "Block" : "Activate"}</button></td></tr>)}</tbody></table></div></SuperAdminLayout>;
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [companyId, setCompanyId] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [password, setPassword] = useState("");
+  const [role, setRole] = useState("MANAGER");
+  const [error, setError] = useState("");
+
+  async function load() {
+    try {
+      setError("");
+      const [companiesData, usersData] = await Promise.all([
+        apiJson<Company[]>("/super-admin/companies"),
+        apiJson<User[]>("/super-admin/users"),
+      ]);
+
+      const safeCompanies = Array.isArray(companiesData) ? companiesData : [];
+      setCompanies(safeCompanies);
+      setUsers(Array.isArray(usersData) ? usersData : []);
+
+      if (!companyId && safeCompanies[0]?.id) setCompanyId(safeCompanies[0].id);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Userlar yuklanmadi");
+    }
+  }
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const companyOptions = useMemo(
+    () => companies.map((company) => ({ value: company.id, label: company.name })),
+    [companies],
+  );
+
+  async function createUser() {
+    try {
+      setError("");
+      await apiJson("/super-admin/users", {
+        method: "POST",
+        body: JSON.stringify({ companyId, fullName, phone, password, role }),
+      });
+
+      setFullName("");
+      setPhone("");
+      setPassword("");
+      setRole("MANAGER");
+      await load();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "User yaratilmadi");
+    }
+  }
+
+  async function updateRole(userId: string, nextRole: string) {
+    try {
+      setError("");
+      await apiJson(`/super-admin/users/${userId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ role: nextRole }),
+      });
+      await load();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Role o‘zgarmadi");
+    }
+  }
+
+  async function toggleBlock(user: User) {
+    try {
+      setError("");
+      await apiJson(`/super-admin/users/${user.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ isActive: !user.isActive }),
+      });
+      await load();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Status o‘zgarmadi");
+    }
+  }
+
+  return (
+    <SuperAdminShell>
+      <PageTop title="User Management" subtitle="Kompaniya userlari, rollar va aktivlik." />
+      {error ? <Toast>{error}</Toast> : null}
+
+      <Card className="mb-5 p-6">
+        <h2 className="text-[24px] font-normal tracking-[-0.04em]">User yaratish</h2>
+        <div className="mt-5 grid grid-cols-5 gap-4">
+          <Select label="Kompaniya" value={companyId} onChange={setCompanyId} options={companyOptions} />
+          <Input label="Ism" value={fullName} onChange={setFullName} />
+          <Input label="Telefon" value={phone} onChange={setPhone} />
+          <Input label="Parol" value={password} onChange={setPassword} />
+          <Select label="Role" value={role} onChange={setRole} options={ROLES} />
+        </div>
+        <Button className="mt-5" onClick={createUser}>User yaratish</Button>
+      </Card>
+
+      <Card className="p-6">
+        <div className="overflow-visible rounded-[22px] border border-[#edf2f7]">
+          <table className="w-full text-left text-[14px]">
+            <thead className="bg-[#f8fafc] text-[11px] uppercase tracking-[0.14em] text-[#8aa0ba]">
+              <tr>
+                <th className="p-4 font-normal">Ism</th>
+                <th className="p-4 font-normal">Telefon</th>
+                <th className="p-4 font-normal">Kompaniya</th>
+                <th className="p-4 font-normal">Role</th>
+                <th className="p-4 font-normal">Status</th>
+                <th className="p-4 text-right font-normal">Amal</th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.map((user) => (
+                <tr key={user.id} className="border-t border-[#edf2f7]">
+                  <td className="p-4">{user.fullName}</td>
+                  <td className="p-4 text-[#64748b]">{user.phone}</td>
+                  <td className="p-4 text-[#64748b]">
+                    {user.company?.name || companies.find((company) => company.id === user.companyId)?.name || "—"}
+                  </td>
+                  <td className="p-4">
+                    <div className="w-[170px]">
+                      <Select label="" value={user.role} onChange={(value) => updateRole(user.id, value)} options={ROLES} />
+                    </div>
+                  </td>
+                  <td className="p-4">
+                    <StatusBadge status={user.isActive ? "ACTIVE" : "BLOCKED"} />
+                  </td>
+                  <td className="p-4 text-right">
+                    <Button variant={user.isActive ? "danger" : "soft"} onClick={() => toggleBlock(user)}>
+                      {user.isActive ? "Block" : "Unblock"}
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+
+              {!users.length ? (
+                <tr>
+                  <td colSpan={6} className="p-8 text-center text-[#8aa0ba]">
+                    User yo‘q
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    </SuperAdminShell>
+  );
 }
-function Input({ label, value, onChange }: any) { return <label><span className="mb-2 block text-[11px] font-black uppercase tracking-[0.12em] text-[#8ba0bb]">{label}</span><input value={value} onChange={(e) => onChange(e.target.value)} className="h-12 w-full rounded-2xl border border-[#dfe8f3] px-4 text-[14px] font-semibold outline-none focus:border-[#93c5fd]" /></label>; }

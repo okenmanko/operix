@@ -1,36 +1,110 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import AppLayout from "../components/AppLayout";
-import { apiJson } from "../lib/api";
+import { apiJson, money } from "../lib/api";
 
-type Payment = { id:string; amount:number; currency:string; method?:string|null; createdAt?:string; debt?:{client?:{fullName?:string;phone?:string}|null}|null };
-type Debt = { id:string; amount:number; currency:string; status:string; dueDate?:string|null };
+type Report = {
+  activeDebts?: number;
+  closedDebts?: number;
+  overdueDebts?: number;
+  totalDebtsUZS?: number;
+  totalDebtsUSD?: number;
+  totalPaidUZS?: number;
+  totalPaidUSD?: number;
+  remainingUZS?: number;
+  remainingUSD?: number;
+  dailyPayments?: { date: string; total: number; currency?: string }[];
+  topDebtors?: { fullName?: string; phone?: string; total?: number; currency?: string }[];
+};
 
-function toArray<T = any>(value: any): T[] {
-  if (Array.isArray(value)) return value;
-  if (Array.isArray(value?.items)) return value.items;
-  if (Array.isArray(value?.data)) return value.data;
-  if (Array.isArray(value?.results)) return value.results;
-  if (Array.isArray(value?.clients)) return value.clients;
-  if (Array.isArray(value?.debts)) return value.debts;
-  if (Array.isArray(value?.payments)) return value.payments;
-  if (Array.isArray(value?.reports)) return value.reports;
-  return [];
+const empty: Report = { dailyPayments: [], topDebtors: [] };
+
+export default function ReportsPage() {
+  const [data, setData] = useState<Report>(empty);
+  const [error, setError] = useState("");
+
+  async function load() {
+    try {
+      setError("");
+      const result = await apiJson<Report>("/reports");
+      setData({ ...empty, ...(result || {}) });
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Hisobot yuklanmadi");
+    }
+  }
+
+  useEffect(() => { load(); }, []);
+
+  return (
+    <AppLayout title="Hisobotlar" subtitle="Qarzlar, to‘lovlar, qoldiq va top qarzdorlar bo‘yicha yakuniy ko‘rsatkichlar.">
+      {error ? <div className="mb-5 rounded-[22px] border border-red-200 bg-red-50 px-5 py-4 text-red-600">{error}</div> : null}
+
+      <div className="grid grid-cols-3 gap-5">
+        <Card title="Qarz statuslari">
+          <Metric label="Aktiv" value={String(data.activeDebts || 0)} />
+          <Metric label="Yopilgan" value={String(data.closedDebts || 0)} />
+          <Metric label="Muddati o‘tgan" value={String(data.overdueDebts || 0)} />
+        </Card>
+
+        <Card title="UZS">
+          <Metric label="Jami qarz" value={money(data.totalDebtsUZS, "UZS")} />
+          <Metric label="To‘langan" value={money(data.totalPaidUZS, "UZS")} />
+          <Metric label="Qoldiq" value={money(data.remainingUZS, "UZS")} />
+        </Card>
+
+        <Card title="USD">
+          <Metric label="Jami qarz" value={money(data.totalDebtsUSD, "USD")} />
+          <Metric label="To‘langan" value={money(data.totalPaidUSD, "USD")} />
+          <Metric label="Qoldiq" value={money(data.remainingUSD, "USD")} />
+        </Card>
+      </div>
+
+      <div className="mt-5 grid grid-cols-2 gap-5">
+        <Table title="Kunlik to‘lovlar">
+          {(data.dailyPayments || []).map((item, index) => (
+            <tr key={`${item.date}-${index}`} className="border-t border-[#edf2f7]">
+              <td className="p-4">{item.date}</td>
+              <td className="p-4">{money(item.total, item.currency || "UZS")}</td>
+            </tr>
+          ))}
+          {!(data.dailyPayments || []).length ? <Empty colSpan={2} /> : null}
+        </Table>
+
+        <Table title="Top qarzdorlar">
+          {(data.topDebtors || []).map((item, index) => (
+            <tr key={index} className="border-t border-[#edf2f7]">
+              <td className="p-4">{item.fullName || "—"}</td>
+              <td className="p-4 text-[#64748b]">{item.phone || "—"}</td>
+              <td className="p-4">{money(item.total, item.currency || "UZS")}</td>
+            </tr>
+          ))}
+          {!(data.topDebtors || []).length ? <Empty colSpan={3} /> : null}
+        </Table>
+      </div>
+    </AppLayout>
+  );
 }
 
-function money(value: any, currency = "UZS") {
-  return `${Number(value || 0).toLocaleString("ru-RU")} ${currency}`;
+function Card({ title, children }: { title: string; children: React.ReactNode }) {
+  return <div className="premium-card p-6"><h2 className="text-[22px] font-normal tracking-[-0.04em]">{title}</h2><div className="mt-5 space-y-3">{children}</div></div>;
 }
 
-function isToday(date?:string|null){ if(!date)return false; const d=new Date(date),n=new Date(); return d.getFullYear()===n.getFullYear()&&d.getMonth()===n.getMonth()&&d.getDate()===n.getDate();}
-function isOverdue(d:Debt){ if(!d.dueDate||d.status==="CLOSED")return false; const due=new Date(d.dueDate); due.setHours(23,59,59,999); return due.getTime()<Date.now();}
-export default function ReportsPage(){
- const [payments,setPayments]=useState<Payment[]>([]); const [debts,setDebts]=useState<Debt[]>([]);
- async function load(){ try{const [p,d]=await Promise.all([apiJson<any>("/payments"),apiJson<any>("/debts")]); setPayments(toArray<Payment>(p)); setDebts(toArray<Debt>(d));}catch{setPayments([]);setDebts([]);}}
- useEffect(()=>{load();},[]);
- const safePayments=Array.isArray(payments)?payments:[]; const safeDebts=Array.isArray(debts)?debts:[];
- const report=useMemo(()=>{ const today=safePayments.filter(p=>isToday(p.createdAt)); const active=safeDebts.filter(d=>d.status!=="CLOSED"); const sumP=(l:Payment[],c:string)=>l.filter(p=>p.currency===c).reduce((s,p)=>s+Number(p.amount||0),0); const sumD=(l:Debt[],c:string)=>l.filter(d=>d.currency===c).reduce((s,d)=>s+Number(d.amount||0),0); return {todayUZS:sumP(today,"UZS"),todayUSD:sumP(today,"USD"),allUZS:sumP(safePayments,"UZS"),allUSD:sumP(safePayments,"USD"),debtUZS:sumD(active,"UZS"),debtUSD:sumD(active,"USD"),overdue:safeDebts.filter(isOverdue).length,payments:safePayments.length};},[safePayments,safeDebts]);
- const cards=[["Bugungi UZS",money(report.todayUZS,"UZS")],["Bugungi USD",money(report.todayUSD,"USD")],["Jami UZS",money(report.allUZS,"UZS")],["Jami USD",money(report.allUSD,"USD")],["Faol qarz UZS",money(report.debtUZS,"UZS")],["Faol qarz USD",money(report.debtUSD,"USD")],["Kechikkanlar",report.overdue],["To‘lovlar",report.payments]];
- return <AppLayout title="Hisobotlar" subtitle="To‘lovlar va qarzlar hisoboti"><div className="grid grid-cols-4 gap-4">{cards.map(([l,v])=><div key={String(l)} className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.05)]"><p className="text-[13px] font-semibold text-slate-500">{l}</p><p className="mt-8 text-[22px] font-semibold tracking-[-0.05em] text-slate-950">{v}</p></div>)}</div><div className="mt-5 rounded-[24px] border border-slate-200 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.05)]"><h2 className="text-[22px] font-bold tracking-[-0.04em] text-slate-950">Oxirgi to‘lovlar</h2><div className="mt-5 overflow-hidden rounded-2xl border border-slate-200"><div className="grid grid-cols-[1fr_150px_150px_150px] bg-slate-50 px-4 py-3 text-[12px] font-bold uppercase tracking-[0.08em] text-slate-400"><div>Mijoz</div><div>Usul</div><div className="text-right">Summa</div><div className="text-right">Sana</div></div>{safePayments.length===0?<div className="p-8 text-center text-[14px] font-semibold text-slate-400">Ma’lumot yo‘q</div>:safePayments.slice(0,20).map(p=><div key={p.id} className="grid grid-cols-[1fr_150px_150px_150px] items-center border-t border-slate-100 px-4 py-4"><div><p className="text-[14px] font-bold text-slate-950">{p.debt?.client?.fullName||"-"}</p><p className="mt-1 text-[12px] text-slate-400">{p.debt?.client?.phone||"-"}</p></div><div className="text-[13px] font-semibold text-slate-500">{p.method||"-"}</div><div className="text-right text-[14px] font-bold text-slate-950">{money(p.amount,p.currency)}</div><div className="text-right text-[12px] font-semibold text-slate-400">{p.createdAt?new Date(p.createdAt).toLocaleDateString():"-"}</div></div>)}</div></div></AppLayout>
+function Metric({ label, value }: { label: string; value: string }) {
+  return <div className="flex justify-between rounded-[18px] bg-[#f8fafc] px-4 py-3 text-[14px]"><span className="text-[#64748b]">{label}</span><span>{value}</span></div>;
+}
+
+function Table({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="premium-card p-6">
+      <h2 className="text-[22px] font-normal tracking-[-0.04em]">{title}</h2>
+      <div className="mt-5 overflow-hidden rounded-[22px] border border-[#edf2f7]">
+        <table className="w-full text-left text-[14px]"><tbody>{children}</tbody></table>
+      </div>
+    </div>
+  );
+}
+
+function Empty({ colSpan }: { colSpan: number }) {
+  return <tr><td colSpan={colSpan} className="p-8 text-center text-[#8aa0ba]">Ma’lumot yo‘q</td></tr>;
 }

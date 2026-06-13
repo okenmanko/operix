@@ -1,270 +1,134 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Package, Warehouse } from "lucide-react";
 import AppLayout from "../components/AppLayout";
 import { apiJson } from "../lib/api";
-import { useI18n } from "../lib/i18n";
+import CustomSelect from "../components/ui/CustomSelect";
+import { Field, PremiumInput } from "../components/ui/Field";
+import { Toast } from "../components/ui/Toast";
 
-type Product = {
-  id: string;
-  name: string;
-  brand?: string;
-  model?: string;
-  inStockQty: number;
-  soldQty: number;
-  reservedQty: number;
-};
+type Product = { id: string; name: string; sku?: string | null; brand?: string | null; inStockQty?: number; soldQty?: number };
+type WarehouseItem = { id: string; name: string };
+type Summary = { products: number; warehouses: number; inStock: number; sold: number; reserved: number };
 
-type Warehouse = { id: string; name: string };
-
-type Summary = {
-  products: number;
-  warehouses: number;
-  inStock: number;
-  sold: number;
-  reserved: number;
-};
+const emptySummary: Summary = { products: 0, warehouses: 0, inStock: 0, sold: 0, reserved: 0 };
 
 export default function InventoryPage() {
-  const { t } = useI18n();
-
-  const [summary, setSummary] = useState<Summary | null>(null);
+  const [summary, setSummary] = useState<Summary>(emptySummary);
   const [products, setProducts] = useState<Product[]>([]);
-  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
-
+  const [warehouses, setWarehouses] = useState<WarehouseItem[]>([]);
+  const [error, setError] = useState("");
   const [name, setName] = useState("");
+  const [sku, setSku] = useState("");
   const [brand, setBrand] = useState("");
-  const [model, setModel] = useState("");
   const [salePrice, setSalePrice] = useState("");
   const [productId, setProductId] = useState("");
   const [warehouseId, setWarehouseId] = useState("");
   const [quantity, setQuantity] = useState("1");
 
   async function load() {
-    const [s, p, w] = await Promise.all([
-      apiJson<Summary>("/inventory/summary"),
-      apiJson<Product[]>("/inventory/products"),
-      apiJson<Warehouse[]>("/inventory/warehouses"),
-    ]);
-
-    setSummary(s);
-    setProducts(Array.isArray(p) ? p : []);
-    setWarehouses(Array.isArray(w) ? w : []);
+    try {
+      setError("");
+      const [summaryData, productsData, warehousesData] = await Promise.all([
+        apiJson<Summary>("/inventory/summary"),
+        apiJson<Product[]>("/inventory/products"),
+        apiJson<WarehouseItem[]>("/inventory/warehouses"),
+      ]);
+      setSummary({ ...emptySummary, ...(summaryData || {}) });
+      setProducts(Array.isArray(productsData) ? productsData : []);
+      setWarehouses(Array.isArray(warehousesData) ? warehousesData : []);
+      if (!productId && productsData?.[0]?.id) setProductId(productsData[0].id);
+      if (!warehouseId && warehousesData?.[0]?.id) setWarehouseId(warehousesData[0].id);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Inventory yuklanmadi");
+    }
   }
 
-  useEffect(() => {
-    load().catch(() => {});
-  }, []);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
 
   async function createProduct() {
-    if (!name.trim()) return;
-
-    await apiJson("/inventory/products", {
-      method: "POST",
-      body: JSON.stringify({
-        name: name.trim(),
-        brand: brand.trim() || null,
-        model: model.trim() || null,
-        salePrice: Number(salePrice || 0),
-        currency: "UZS",
-      }),
-    });
-
-    setName("");
-    setBrand("");
-    setModel("");
-    setSalePrice("");
-    await load();
+    try {
+      await apiJson("/inventory/products", {
+        method: "POST",
+        body: JSON.stringify({ name, sku, brand, salePrice: Number(salePrice || 0), currency: "UZS" }),
+      });
+      setName(""); setSku(""); setBrand(""); setSalePrice("");
+      await load();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Mahsulot yaratilmadi");
+    }
   }
 
-  async function receiveStock() {
-    if (!productId || !warehouseId) return;
-
-    await apiJson("/inventory/receive", {
-      method: "POST",
-      body: JSON.stringify({
-        productId,
-        warehouseId,
-        quantity: Number(quantity || 1),
-      }),
-    });
-
-    setQuantity("1");
-    await load();
+  async function receive() {
+    try {
+      await apiJson("/inventory/receive", {
+        method: "POST",
+        body: JSON.stringify({ productId, warehouseId, quantity: Number(quantity || 1) }),
+      });
+      setQuantity("1");
+      await load();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Kirim qilinmadi");
+    }
   }
 
-  const stats = [
-    { label: "Mahsulotlar", value: summary?.products || 0 },
-    { label: "Skladlar", value: summary?.warehouses || 0 },
-    { label: "Qoldiq", value: summary?.inStock || 0 },
-    { label: "Sotilgan", value: summary?.sold || 0 },
-  ];
+  const productOptions = products.map((p) => ({ value: p.id, label: p.name, icon: <Package size={18} /> }));
+  const warehouseOptions = warehouses.map((w) => ({ value: w.id, label: w.name, icon: <Warehouse size={18} /> }));
 
   return (
-    <AppLayout
-      title="Sklad"
-      subtitle="QR Inventory, mahsulotlar va sklad qoldiqlari"
-    >
-      <div className="grid grid-cols-4 gap-4">
-        {stats.map((item) => (
-          <div
-            key={item.label}
-            className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.05)]"
-          >
-            <p className="text-[13px] font-semibold text-slate-500">
-              {item.label}
-            </p>
-            <p className="mt-8 text-[34px] font-semibold tracking-[-0.06em] text-slate-950">
-              {item.value}
-            </p>
-          </div>
-        ))}
+    <AppLayout title="Inventory" subtitle="Mahsulotlar, omborlar va QR kirim oqimi.">
+      {error ? <Toast type="error">{error}</Toast> : null}
+
+      <div className="mb-5 grid grid-cols-5 gap-4">
+        <Stat label="Products" value={summary.products} />
+        <Stat label="Warehouses" value={summary.warehouses} />
+        <Stat label="In stock" value={summary.inStock} />
+        <Stat label="Sold" value={summary.sold} />
+        <Stat label="Reserved" value={summary.reserved} />
       </div>
 
-      <div className="mt-5 grid grid-cols-[430px_1fr] gap-5">
-        <div className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.05)]">
-          <h2 className="text-[22px] font-bold tracking-[-0.04em] text-slate-950">
-            Mahsulot qo‘shish
-          </h2>
-
-          <div className="mt-5 space-y-3">
-            <input
-              className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-[14px] font-medium text-slate-900 outline-none placeholder:text-slate-400 focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Mahsulot nomi"
-            />
-
-            <div className="grid grid-cols-2 gap-3">
-              <input
-                className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-[14px] font-medium text-slate-900 outline-none placeholder:text-slate-400 focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
-                value={brand}
-                onChange={(e) => setBrand(e.target.value)}
-                placeholder="Brand"
-              />
-
-              <input
-                className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-[14px] font-medium text-slate-900 outline-none placeholder:text-slate-400 focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                placeholder="Model"
-              />
-            </div>
-
-            <input
-              className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-[14px] font-medium text-slate-900 outline-none placeholder:text-slate-400 focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
-              value={salePrice}
-              onChange={(e) => setSalePrice(e.target.value)}
-              placeholder="Sotuv narxi"
-            />
-
-            <button
-              onClick={createProduct}
-              className="h-12 w-full rounded-2xl bg-sky-500 text-[14px] font-bold text-white transition hover:bg-sky-600"
-            >
-              Saqlash
-            </button>
+      <div className="grid grid-cols-2 gap-5">
+        <div className="premium-card p-6">
+          <h2 className="text-[22px] font-normal tracking-[-0.04em]">Mahsulot qo‘shish</h2>
+          <div className="mt-5 grid grid-cols-2 gap-4">
+            <Field label="Nomi"><PremiumInput value={name} onChange={setName} /></Field>
+            <Field label="SKU"><PremiumInput value={sku} onChange={setSku} /></Field>
+            <Field label="Brand"><PremiumInput value={brand} onChange={setBrand} /></Field>
+            <Field label="Sotuv narxi"><PremiumInput value={salePrice} onChange={setSalePrice} /></Field>
           </div>
-
-          <div className="my-7 h-px bg-slate-200" />
-
-          <h2 className="text-[22px] font-bold tracking-[-0.04em] text-slate-950">
-            Kirim qilish
-          </h2>
-
-          <div className="mt-5 space-y-3">
-            <select
-              className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-[14px] font-medium text-slate-900 outline-none focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
-              value={productId}
-              onChange={(e) => setProductId(e.target.value)}
-            >
-              <option value="">Mahsulot tanlang</option>
-              {products.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-
-            <select
-              className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-[14px] font-medium text-slate-900 outline-none focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
-              value={warehouseId}
-              onChange={(e) => setWarehouseId(e.target.value)}
-            >
-              <option value="">Sklad tanlang</option>
-              {warehouses.map((w) => (
-                <option key={w.id} value={w.id}>
-                  {w.name}
-                </option>
-              ))}
-            </select>
-
-            <input
-              className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-[14px] font-medium text-slate-900 outline-none placeholder:text-slate-400 focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
-              value={quantity}
-              onChange={(e) => setQuantity(e.target.value)}
-              placeholder="Miqdor"
-            />
-
-            <button
-              onClick={receiveStock}
-              className="h-12 w-full rounded-2xl bg-slate-950 text-[14px] font-bold text-white transition hover:bg-slate-800"
-            >
-              QR bilan kirim qilish
-            </button>
-          </div>
+          <button onClick={createProduct} className="premium-button premium-button-primary mt-5">Saqlash</button>
         </div>
 
-        <div className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.05)]">
-          <div className="flex items-center justify-between">
-            <h2 className="text-[22px] font-bold tracking-[-0.04em] text-slate-950">
-              Sklad
-            </h2>
-
-            <span className="rounded-full bg-sky-50 px-3 py-1 text-[12px] font-bold text-sky-600">
-              {products.length} mahsulot
-            </span>
+        <div className="premium-card p-6">
+          <h2 className="text-[22px] font-normal tracking-[-0.04em]">Kirim / QR yaratish</h2>
+          <div className="mt-5 space-y-4">
+            <Field label="Mahsulot"><CustomSelect value={productId} onChange={setProductId} options={productOptions} /></Field>
+            <Field label="Ombor"><CustomSelect value={warehouseId} onChange={setWarehouseId} options={warehouseOptions} /></Field>
+            <Field label="Miqdor"><PremiumInput value={quantity} onChange={setQuantity} /></Field>
           </div>
+          <button onClick={receive} className="premium-button premium-button-primary mt-5">Kirim qilish</button>
+        </div>
+      </div>
 
-          <div className="mt-5 overflow-hidden rounded-2xl border border-slate-200">
-            <div className="grid grid-cols-[1fr_120px_120px] bg-slate-50 px-4 py-3 text-[12px] font-bold uppercase tracking-[0.08em] text-slate-400">
-              <div>Mahsulot</div>
-              <div className="text-right">Qoldiq</div>
-              <div className="text-right">Sotilgan</div>
-            </div>
-
-            {products.length === 0 ? (
-              <div className="p-8 text-center text-[14px] font-semibold text-slate-400">
-                Ma’lumot yo‘q
-              </div>
-            ) : (
-              products.map((p) => (
-                <div
-                  key={p.id}
-                  className="grid grid-cols-[1fr_120px_120px] items-center border-t border-slate-100 px-4 py-4"
-                >
-                  <div>
-                    <p className="text-[14px] font-bold text-slate-950">
-                      {p.name}
-                    </p>
-                    <p className="mt-1 text-[12px] font-medium text-slate-400">
-                      {[p.brand, p.model].filter(Boolean).join(" • ") || "-"}
-                    </p>
-                  </div>
-
-                  <div className="text-right text-[14px] font-bold text-slate-950">
-                    {p.inStockQty}
-                  </div>
-
-                  <div className="text-right text-[14px] font-bold text-slate-500">
-                    {p.soldQty}
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
+      <div className="premium-card mt-5 p-6">
+        <h2 className="text-[22px] font-normal tracking-[-0.04em]">Mahsulotlar</h2>
+        <div className="mt-5 overflow-hidden rounded-[22px] border border-[#edf2f7]">
+          <table className="w-full text-left text-[14px]">
+            <thead className="bg-[#f8fafc] text-[11px] uppercase tracking-[0.12em] text-[#8aa0ba]">
+              <tr><th className="p-4 font-normal">Nomi</th><th className="p-4 font-normal">SKU</th><th className="p-4 font-normal">Brand</th><th className="p-4 font-normal">In stock</th><th className="p-4 font-normal">Sold</th></tr>
+            </thead>
+            <tbody>
+              {products.map((p) => <tr key={p.id} className="border-t border-[#edf2f7]"><td className="p-4">{p.name}</td><td className="p-4 text-[#64748b]">{p.sku || "—"}</td><td className="p-4 text-[#64748b]">{p.brand || "—"}</td><td className="p-4">{p.inStockQty || 0}</td><td className="p-4">{p.soldQty || 0}</td></tr>)}
+              {!products.length ? <tr><td colSpan={5} className="p-8 text-center text-[#8aa0ba]">Mahsulot yo‘q</td></tr> : null}
+            </tbody>
+          </table>
         </div>
       </div>
     </AppLayout>
   );
+}
+
+function Stat({ label, value }: { label: string; value: number }) {
+  return <div className="premium-card p-5"><p className="text-[12px] uppercase tracking-[0.12em] text-[#8aa0ba]">{label}</p><p className="mt-3 text-[28px] tracking-[-0.04em]">{value}</p></div>;
 }

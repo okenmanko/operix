@@ -17,7 +17,6 @@ export default function AppLayout({
   return (
     <main className="premium-page min-h-screen text-[#111827]">
       <Sidebar />
-
       <section className="ml-[250px] min-h-screen px-10 py-8">
         <div className="mx-auto max-w-[1500px]">
           <div className="mb-5 flex justify-end">
@@ -33,7 +32,6 @@ export default function AppLayout({
           </div>
 
           <PageHeader title={title} subtitle={subtitle} />
-
           {children}
         </div>
       </section>
