@@ -2,105 +2,72 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { API_URL, setCookie } from "../lib/api";
+import { apiJson, setCookie, setStoredUser, setToken } from "../lib/api";
 
 export default function SuperLoginPage() {
   const router = useRouter();
+
   const [phone, setPhone] = useState("+998882962500");
   const [password, setPassword] = useState("");
-  const [secretKey, setSecretKey] = useState("");
+  const [masterKey, setMasterKey] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    setError("");
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
 
     try {
       setLoading(true);
+      setError("");
 
-      const res = await fetch(`${API_URL}/auth/super-login`, {
+      const data = await apiJson<any>("/auth/super-login", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone, password, secretKey }),
+        body: JSON.stringify({ phone, password, masterKey, secretKey: masterKey }),
       });
 
-      const data = await res.json();
+      const token = data?.accessToken || data?.token || data?.jwt || "";
+      if (token) setToken(token);
 
-      if (!res.ok) {
-        throw new Error(data?.message || "Super Admin login xato");
+      const user = data?.user || { phone, role: "SUPER_ADMIN", isSuperAdmin: true };
+
+      setStoredUser({ ...user, role: "SUPER_ADMIN", isSuperAdmin: true });
+      setCookie("operix_super_admin", "true");
+      setCookie("operix_role", "SUPER_ADMIN");
+
+      if (typeof window !== "undefined") {
+        localStorage.setItem("operix_role", "SUPER_ADMIN");
+        localStorage.setItem("operix_super_admin", "true");
       }
 
-      const token = data.token || data.accessToken;
-      if (!token) throw new Error("Token kelmadi");
-
-      localStorage.setItem("operix_token", token);
-      localStorage.setItem("operix_user", JSON.stringify(data.user || {}));
-      localStorage.setItem("operix_company", JSON.stringify(data.company || {}));
-      setCookie("operix_token", token, 1);
-
-      router.replace("/super-admin");
-      router.refresh();
-    } catch (err: any) {
-      setError(err?.message || "Xatolik yuz berdi");
+      router.push("/super-admin");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Super admin login xatosi");
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#f6f8fb] px-4">
-      <form
-        onSubmit={submit}
-        className="w-full max-w-[500px] rounded-[32px] border border-slate-200 bg-white p-10 shadow-[0_24px_80px_rgba(15,23,42,0.08)]"
-      >
-        <div className="mb-8 flex h-16 w-16 items-center justify-center rounded-3xl bg-red-50">
-          <div className="h-7 w-7 rounded-xl bg-red-500" />
+    <main className="min-h-screen bg-[#f4f7fb] px-5 py-10">
+      <div className="mx-auto mt-8 w-full max-w-[560px] rounded-[34px] border border-[#dfe8f3] bg-white p-10 shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
+        <div className="mb-9">
+          <div className="mb-8 flex h-[72px] w-[72px] items-center justify-center rounded-[26px] bg-red-50">
+            <span className="block h-8 w-8 rounded-full bg-red-500" />
+          </div>
+          <h1 className="text-[40px] font-semibold tracking-[-0.06em] text-[#0f172a]">Super Admin</h1>
+          <p className="mt-2 text-[16px] text-[#64748b]">Operix master panel</p>
         </div>
 
-        <h1 className="text-4xl font-bold text-slate-950">Super Admin</h1>
-        <p className="mt-3 text-base font-medium text-slate-500">
-          Operix master panel
-        </p>
-
-        <div className="mt-9 space-y-4">
-          <input
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            placeholder="+998..."
-            className="h-14 w-full rounded-2xl border border-slate-200 px-5 outline-none transition focus:border-red-500 focus:ring-4 focus:ring-red-100"
-          />
-
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Parol"
-            className="h-14 w-full rounded-2xl border border-slate-200 px-5 outline-none transition focus:border-red-500 focus:ring-4 focus:ring-red-100"
-          />
-
-          <input
-            type="password"
-            value={secretKey}
-            onChange={(e) => setSecretKey(e.target.value)}
-            placeholder="Master secret key"
-            className="h-14 w-full rounded-2xl border border-slate-200 px-5 outline-none transition focus:border-red-500 focus:ring-4 focus:ring-red-100"
-          />
-
-          {error && (
-            <div className="rounded-2xl bg-red-50 px-4 py-3 text-sm font-bold text-red-600">
-              {error}
-            </div>
-          )}
-
-          <button
-            disabled={loading}
-            className="h-14 w-full rounded-2xl bg-red-500 text-base font-bold text-white transition hover:bg-red-600 disabled:opacity-60"
-          >
-            {loading ? "Tekshirilmoqda..." : "Super Admin kirish"}
+        <form onSubmit={submit} className="space-y-4">
+          <input value={phone} onChange={(e) => setPhone(e.target.value)} className="h-[62px] w-full rounded-[18px] border border-[#dfe8f3] bg-white px-6 text-[16px] text-[#0f172a] outline-none" placeholder="Telefon" />
+          <input value={password} onChange={(e) => setPassword(e.target.value)} className="h-[62px] w-full rounded-[18px] border border-[#dfe8f3] bg-white px-6 text-[16px] text-[#0f172a] outline-none" placeholder="Parol" type="password" />
+          <input value={masterKey} onChange={(e) => setMasterKey(e.target.value)} className="h-[62px] w-full rounded-[18px] border border-[#dfe8f3] bg-white px-6 text-[16px] text-[#0f172a] outline-none" placeholder="Master key" type="password" />
+          {error ? <div className="rounded-[18px] bg-red-50 px-5 py-4 text-[14px] font-medium text-red-600">{error}</div> : null}
+          <button type="submit" disabled={loading} className="h-[64px] w-full rounded-[18px] bg-red-500 text-[16px] font-semibold text-white disabled:opacity-60">
+            {loading ? "Kirilmoqda..." : "Super Admin kirish"}
           </button>
-        </div>
-      </form>
+        </form>
+      </div>
     </main>
   );
 }

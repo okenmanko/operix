@@ -1,745 +1,135 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import { ArrowLeft, CreditCard, Phone, User } from "lucide-react";
+import Link from "next/link";
 import AppLayout from "../../components/AppLayout";
+import { apiJson, dateText, money, num } from "../../lib/api";
 
-type Payment = {
+type Client = {
   id: string;
-  amount: number;
-  currency: string;
-  method?: string;
-  comment?: string;
-  createdAt: string;
+  fullName: string;
+  phone?: string | null;
+  address?: string | null;
+  guarantorName?: string | null;
+  guarantorPhone?: string | null;
 };
 
 type Debt = {
   id: string;
   amount: number;
-  currency: string;
+  currency: "USD" | "UZS";
   status: string;
-  comment?: string;
-  dueDate?: string;
-  paidAmount: number;
-  remainingAmount: number;
-  payments: Payment[];
+  dueDate?: string | null;
+  comment?: string | null;
+  client?: Client;
+  payments?: Array<{ id: string; amount: number; currency: "USD" | "UZS"; createdAt?: string }>;
 };
 
-type Client = {
-  id: string;
-  fullName: string;
-  phone: string;
-  address?: string;
-  guarantorName?: string;
-  guarantorPhone?: string;
-  debts: Debt[];
-};
-
-function onlyDigits(value: string) {
-  return value.replace(/\D/g, "");
-}
-
-function formatUzPhone(value?: string) {
-  if (!value) return "-";
-
-  let digits = onlyDigits(value);
-
-  if (digits.startsWith("998")) digits = digits.slice(3);
-  if (digits.startsWith("8")) digits = digits.slice(1);
-
-  digits = digits.slice(0, 9);
-
-  const operator = digits.slice(0, 2);
-  const first = digits.slice(2, 5);
-  const second = digits.slice(5, 7);
-  const third = digits.slice(7, 9);
-
-  let result = "+998";
-
-  if (operator) result += ` ${operator}`;
-  if (first) result += ` ${first}`;
-  if (second) result += ` ${second}`;
-  if (third) result += ` ${third}`;
-
-  return result;
-}
-
-function money(value: number) {
-  return Number(value || 0).toLocaleString("ru-RU");
-}
-
-export default function ClientDetailPage() {
-  const params = useParams();
-  const id = params.id as string;
-
+export default function ClientProfilePage({ params }: { params: { id: string } }) {
   const [client, setClient] = useState<Client | null>(null);
+  const [debts, setDebts] = useState<Debt[]>([]);
+  const [error, setError] = useState("");
 
-  const [showDebtModal, setShowDebtModal] = useState(false);
-  const [debtAmount, setDebtAmount] = useState("");
-  const [debtCurrency, setDebtCurrency] = useState("UZS");
-  const [debtDueDate, setDebtDueDate] = useState("");
-  const [debtComment, setDebtComment] = useState("");
+  async function load() {
+    try {
+      setError("");
+      const [clientsData, debtsData] = await Promise.all([
+        apiJson<Client[]>("/clients"),
+        apiJson<Debt[]>("/debts"),
+      ]);
 
-  const [showEditModal, setShowEditModal] = useState(false);
-  const [editFullName, setEditFullName] = useState("");
-  const [editPhone, setEditPhone] = useState("");
-  const [editAddress, setEditAddress] = useState("");
-  const [editGuarantorName, setEditGuarantorName] = useState("");
-  const [editGuarantorPhone, setEditGuarantorPhone] = useState("");
-
-  const [showPaymentModal, setShowPaymentModal] = useState(false);
-  const [selectedDebtId, setSelectedDebtId] = useState("");
-  const [paymentAmount, setPaymentAmount] = useState("");
-  const [paymentCurrency, setPaymentCurrency] = useState("UZS");
-  const [paymentMethod, setPaymentMethod] = useState("cash");
-  const [paymentComment, setPaymentComment] = useState("");
-
-  async function loadClient() {
-    const res = await fetch(`http://localhost:4000/clients/${id}`);
-    const data = await res.json();
-    setClient(data);
+      const found = clientsData.find((item) => item.id === params.id) || null;
+      setClient(found);
+      setDebts(debtsData.filter((debt) => debt.client?.id === params.id));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Mijoz yuklanmadi");
+    }
   }
 
   useEffect(() => {
-    loadClient();
-  }, [id]);
+    load();
+  }, [params.id]);
 
-  async function createDebt() {
-    if (!client || !debtAmount) return;
+  const totals = useMemo(() => {
+    const usd = debts.filter((d) => d.currency === "USD").reduce((s, d) => s + Number(d.amount || 0), 0);
+    const uzs = debts.filter((d) => d.currency === "UZS").reduce((s, d) => s + Number(d.amount || 0), 0);
+    const payments = debts.flatMap((d) => d.payments || []);
+    const paidUsd = payments.filter((p) => p.currency === "USD").reduce((s, p) => s + Number(p.amount || 0), 0);
+    const paidUzs = payments.filter((p) => p.currency === "UZS").reduce((s, p) => s + Number(p.amount || 0), 0);
 
-    await fetch("http://localhost:4000/debts", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        clientId: client.id,
-        amount: Number(debtAmount),
-        currency: debtCurrency,
-        dueDate: debtDueDate || undefined,
-        comment: debtComment || undefined,
-      }),
-    });
-
-    setShowDebtModal(false);
-    setDebtAmount("");
-    setDebtCurrency("UZS");
-    setDebtDueDate("");
-    setDebtComment("");
-
-    await loadClient();
-  }
-
-  async function createPayment() {
-    if (!selectedDebtId || !paymentAmount) return;
-
-    await fetch("http://localhost:4000/payments", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        debtId: selectedDebtId,
-        amount: Number(paymentAmount),
-        currency: paymentCurrency,
-        method: paymentMethod,
-        comment: paymentComment || undefined,
-      }),
-    });
-
-    setShowPaymentModal(false);
-    setSelectedDebtId("");
-    setPaymentAmount("");
-    setPaymentCurrency("UZS");
-    setPaymentMethod("cash");
-    setPaymentComment("");
-
-    await loadClient();
-  }
-
-  async function deletePayment(paymentId: string) {
-    const confirmed = window.confirm("To‘lovni o‘chirishni tasdiqlaysizmi?");
-    if (!confirmed) return;
-
-    await fetch(`http://localhost:4000/payments/${paymentId}`, {
-      method: "DELETE",
-    });
-
-    await loadClient();
-  }
-
-  async function closeDebt(debtId: string) {
-    const confirmed = window.confirm("Qarzni yopishni tasdiqlaysizmi?");
-    if (!confirmed) return;
-
-    await fetch(`http://localhost:4000/debts/${debtId}/close`, {
-      method: "PATCH",
-    });
-
-    await loadClient();
-  }
-
-  async function deleteDebt(debtId: string) {
-    const confirmed = window.confirm(
-      "Qarzni o‘chirishni tasdiqlaysizmi? Ichidagi barcha to‘lovlar ham o‘chadi.",
-    );
-
-    if (!confirmed) return;
-
-    await fetch(`http://localhost:4000/debts/${debtId}`, {
-      method: "DELETE",
-    });
-
-    await loadClient();
-  }
-
-  function openEditModal() {
-    if (!client) return;
-
-    setEditFullName(client.fullName || "");
-    setEditPhone(formatUzPhone(client.phone || ""));
-    setEditAddress(client.address || "");
-    setEditGuarantorName(client.guarantorName || "");
-    setEditGuarantorPhone(formatUzPhone(client.guarantorPhone || ""));
-    setShowEditModal(true);
-  }
-
-  async function updateClient() {
-    if (!client || !editFullName || !editPhone) return;
-
-    await fetch(`http://localhost:4000/clients/${client.id}`, {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        fullName: editFullName,
-        phone: editPhone,
-        address: editAddress || undefined,
-        guarantorName: editGuarantorName || undefined,
-        guarantorPhone: editGuarantorPhone || undefined,
-      }),
-    });
-
-    setShowEditModal(false);
-    await loadClient();
-  }
-
-  if (!client) {
-    return (
-      <AppLayout title="Client" subtitle="Loading...">
-        <div className="card-clean p-6 text-sm font-medium text-slate-500">
-          Loading...
-        </div>
-      </AppLayout>
-    );
-  }
-
-  const uzsTotal = client.debts
-    .filter((d) => d.currency === "UZS")
-    .reduce((sum, d) => sum + Number(d.amount), 0);
-
-  const uzsPaid = client.debts
-    .filter((d) => d.currency === "UZS")
-    .reduce((sum, d) => sum + Number(d.paidAmount), 0);
-
-  const uzsRemaining = client.debts
-    .filter((d) => d.currency === "UZS")
-    .reduce((sum, d) => sum + Number(d.remainingAmount), 0);
-
-  const usdTotal = client.debts
-    .filter((d) => d.currency === "USD")
-    .reduce((sum, d) => sum + Number(d.amount), 0);
-
-  const usdPaid = client.debts
-    .filter((d) => d.currency === "USD")
-    .reduce((sum, d) => sum + Number(d.paidAmount), 0);
-
-  const usdRemaining = client.debts
-    .filter((d) => d.currency === "USD")
-    .reduce((sum, d) => sum + Number(d.remainingAmount), 0);
+    return { usd, uzs, paidUsd, paidUzs };
+  }, [debts]);
 
   return (
-    <AppLayout title={client.fullName} subtitle="Mijoz kartasi va qarzlar tarixi">
-      <div className="mb-5 flex items-center justify-between">
-        <div className="text-sm font-medium text-slate-500">
-          Client ID:{" "}
-          <span className="text-slate-700">{client.id.slice(0, 10)}</span>
-        </div>
+    <AppLayout title="Mijoz kartasi" subtitle="Qarzlar, to‘lovlar va mijoz ma’lumotlari.">
+      <Link href="/clients" className="mb-5 inline-flex items-center gap-2 text-[14px] text-[#64748b] hover:text-[#315efb]">
+        <ArrowLeft size={17} /> Mijozlarga qaytish
+      </Link>
 
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={openEditModal}
-            className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-          >
-            Tahrirlash
-          </button>
+      {error ? <div className="mb-5 rounded-[22px] border border-red-200 bg-red-50 px-5 py-4 text-[14px] text-red-600">{error}</div> : null}
 
-          <button
-            type="button"
-            onClick={() => setShowDebtModal(true)}
-            className="rounded-xl bg-[#3B82F6] px-4 py-2.5 text-sm font-semibold text-white transition hover:opacity-90"
-          >
-            + Qarz qo‘shish
-          </button>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-3 gap-4">
-        <InfoCard title="Telefon" value={formatUzPhone(client.phone)} />
-        <InfoCard title="Manzil" value={client.address || "-"} />
-        <InfoCard
-          title="Kafil"
-          value={`${client.guarantorName || "-"} ${
-            client.guarantorPhone ? formatUzPhone(client.guarantorPhone) : ""
-          }`}
-        />
-      </div>
-
-      <div className="mt-5 grid grid-cols-2 gap-4">
-        <CurrencyPanel
-          title="UZS hisoboti"
-          total={uzsTotal}
-          paid={uzsPaid}
-          remaining={uzsRemaining}
-          currency="UZS"
-        />
-
-        <CurrencyPanel
-          title="USD hisoboti"
-          total={usdTotal}
-          paid={usdPaid}
-          remaining={usdRemaining}
-          currency="USD"
-        />
-      </div>
-
-      <div className="mt-5 overflow-hidden rounded-[20px] border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-100 px-5 py-4">
-          <h2 className="text-[18px] font-semibold text-slate-950">Qarzlar</h2>
-          <p className="mt-1 text-[13px] font-medium text-slate-400">
-            Mijozning barcha qarzlari va to‘lovlari
-          </p>
-        </div>
-
-        <div className="divide-y divide-slate-100">
-          {client.debts.length === 0 ? (
-            <div className="p-6 text-sm font-medium text-slate-400">
-              Hozircha qarz yo‘q
+      <div className="grid grid-cols-[0.9fr_1.4fr] gap-5">
+        <div className="premium-card p-6">
+          <div className="flex items-center gap-4">
+            <div className="flex h-16 w-16 items-center justify-center rounded-[24px] bg-[#eef4ff] text-[#315efb]">
+              <User size={26} />
             </div>
-          ) : (
-            client.debts.map((debt) => (
-              <div key={debt.id} className="p-5">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-[16px] font-semibold text-slate-950">
-                      {money(debt.amount)} {debt.currency}
-                    </p>
-                    <p className="mt-1 text-[13px] font-medium text-slate-400">
-                      {debt.comment || "Izoh yo‘q"}
-                    </p>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    {debt.status !== "CLOSED" && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedDebtId(debt.id);
-                          setPaymentCurrency(debt.currency);
-                          setShowPaymentModal(true);
-                        }}
-                        className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-600 transition hover:bg-slate-50"
-                      >
-                        + To‘lov
-                      </button>
-                    )}
-
-                    {debt.status !== "CLOSED" && (
-                      <button
-                        type="button"
-                        onClick={() => closeDebt(debt.id)}
-                        className="rounded-full border border-emerald-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-emerald-600 transition hover:bg-emerald-50"
-                      >
-                        Yopish
-                      </button>
-                    )}
-
-                    <button
-                      type="button"
-                      onClick={() => deleteDebt(debt.id)}
-                      className="rounded-full border border-red-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-red-600 transition hover:bg-red-50"
-                    >
-                      O‘chirish
-                    </button>
-
-                    <span className="rounded-full bg-slate-100 px-3 py-1.5 text-[11px] font-semibold text-slate-600">
-                      {debt.status}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="mt-4 grid grid-cols-3 gap-3">
-                  <MiniStat
-                    title="To‘langan"
-                    value={`${money(debt.paidAmount)} ${debt.currency}`}
-                  />
-                  <MiniStat
-                    title="Qoldiq"
-                    value={`${money(debt.remainingAmount)} ${debt.currency}`}
-                  />
-                  <MiniStat
-                    title="Muddat"
-                    value={
-                      debt.dueDate
-                        ? new Date(debt.dueDate).toLocaleDateString("ru-RU")
-                        : "-"
-                    }
-                  />
-                </div>
-
-                <div className="mt-4 rounded-[16px] bg-slate-50 p-4">
-                  <p className="mb-3 text-[13px] font-semibold text-slate-500">
-                    To‘lovlar
-                  </p>
-
-                  {debt.payments.length === 0 ? (
-                    <p className="text-[13px] font-medium text-slate-400">
-                      To‘lov yo‘q
-                    </p>
-                  ) : (
-                    <div className="space-y-2">
-                      {debt.payments.map((payment) => (
-                        <div
-                          key={payment.id}
-                          className="flex items-center justify-between rounded-xl bg-white px-4 py-3"
-                        >
-                          <div>
-                            <p className="text-[14px] font-semibold text-slate-950">
-                              {money(payment.amount)} {payment.currency}
-                            </p>
-                            <p className="text-[12px] font-medium text-slate-400">
-                              {payment.method || "-"} • {payment.comment || "-"}
-                            </p>
-                          </div>
-
-                          <div className="flex items-center gap-3">
-                            <p className="text-[12px] font-medium text-slate-400">
-                              {new Date(payment.createdAt).toLocaleDateString(
-                                "ru-RU",
-                              )}
-                            </p>
-
-                            <button
-                              type="button"
-                              onClick={() => deletePayment(payment.id)}
-                              className="rounded-lg border border-red-200 px-2 py-1 text-[11px] font-semibold text-red-600 transition hover:bg-red-50"
-                            >
-                              O‘chirish
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      </div>
-
-      {showEditModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/30 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-[22px] bg-white p-6 shadow-2xl">
-            <h2 className="text-[20px] font-semibold text-slate-950">
-              Mijozni tahrirlash
-            </h2>
-
-            <p className="mt-1 text-[13px] font-medium text-slate-400">
-              Mijoz ma’lumotlarini yangilang
-            </p>
-
-            <div className="mt-5 space-y-3">
-              <input
-                value={editFullName}
-                onChange={(e) => setEditFullName(e.target.value)}
-                placeholder="Ism Familiya"
-                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-slate-400"
-              />
-
-              <input
-                value={editPhone}
-                onChange={(e) => setEditPhone(formatUzPhone(e.target.value))}
-                placeholder="+998 91 000 00 00"
-                inputMode="tel"
-                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-slate-400"
-              />
-
-              <input
-                value={editAddress}
-                onChange={(e) => setEditAddress(e.target.value)}
-                placeholder="Manzil"
-                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-slate-400"
-              />
-
-              <input
-                value={editGuarantorName}
-                onChange={(e) => setEditGuarantorName(e.target.value)}
-                placeholder="Kafil ismi"
-                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-slate-400"
-              />
-
-              <input
-                value={editGuarantorPhone}
-                onChange={(e) =>
-                  setEditGuarantorPhone(formatUzPhone(e.target.value))
-                }
-                placeholder="+998 91 000 00 00"
-                inputMode="tel"
-                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-slate-400"
-              />
-            </div>
-
-            <div className="mt-6 flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setShowEditModal(false)}
-                className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
-              >
-                Bekor qilish
-              </button>
-
-              <button
-                type="button"
-                onClick={updateClient}
-                className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
-              >
-                Saqlash
-              </button>
+            <div>
+              <h2 className="text-[28px] font-normal tracking-[-0.05em] text-[#111827]">{client?.fullName || "—"}</h2>
+              <p className="mt-1 text-[14px] text-[#8aa0ba]">{client?.phone || "Telefon yo‘q"}</p>
             </div>
           </div>
-        </div>
-      )}
 
-      {showDebtModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/30 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-[22px] bg-white p-6 shadow-2xl">
-            <h2 className="text-[20px] font-semibold text-slate-950">
-              Yangi qarz qo‘shish
-            </h2>
-
-            <p className="mt-1 text-[13px] font-medium text-slate-400">
-              {client.fullName} uchun yangi qarz yarating
-            </p>
-
-            <div className="mt-5 space-y-3">
-              <input
-                type="text"
-                inputMode="numeric"
-                value={debtAmount}
-                onChange={(e) =>
-                  setDebtAmount(e.target.value.replace(/\D/g, ""))
-                }
-                placeholder="Summa"
-                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-slate-400"
-              />
-
-              <select
-                value={debtCurrency}
-                onChange={(e) => setDebtCurrency(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-slate-400"
-              >
-                <option value="UZS">UZS</option>
-                <option value="USD">USD</option>
-              </select>
-
-              <input
-                type="date"
-                value={debtDueDate}
-                onChange={(e) => setDebtDueDate(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-slate-400"
-              />
-
-              <input
-                value={debtComment}
-                onChange={(e) => setDebtComment(e.target.value)}
-                placeholder="Izoh"
-                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-slate-400"
-              />
-            </div>
-
-            <div className="mt-6 flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setShowDebtModal(false)}
-                className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
-              >
-                Bekor qilish
-              </button>
-
-              <button
-                type="button"
-                onClick={createDebt}
-                className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
-              >
-                Saqlash
-              </button>
-            </div>
+          <div className="mt-6 space-y-3 text-[14px]">
+            <Info label="Manzil" value={client?.address || "—"} />
+            <Info label="Kafil" value={client?.guarantorName || "—"} />
+            <Info label="Kafil telefoni" value={client?.guarantorPhone || "—"} />
           </div>
         </div>
-      )}
 
-      {showPaymentModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/30 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-[22px] bg-white p-6 shadow-2xl">
-            <h2 className="text-[20px] font-semibold text-slate-950">
-              Yangi to‘lov qo‘shish
-            </h2>
-
-            <p className="mt-1 text-[13px] font-medium text-slate-400">
-              Tanlangan qarz uchun to‘lov kiriting
-            </p>
-
-            <div className="mt-5 space-y-3">
-              <input
-                type="text"
-                inputMode="numeric"
-                value={paymentAmount}
-                onChange={(e) =>
-                  setPaymentAmount(e.target.value.replace(/\D/g, ""))
-                }
-                placeholder="Summa"
-                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-slate-400"
-              />
-
-              <select
-                value={paymentCurrency}
-                onChange={(e) => setPaymentCurrency(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-slate-400"
-              >
-                <option value="UZS">UZS</option>
-                <option value="USD">USD</option>
-              </select>
-
-              <select
-                value={paymentMethod}
-                onChange={(e) => setPaymentMethod(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-slate-400"
-              >
-                <option value="cash">Naqd</option>
-                <option value="card">Karta</option>
-                <option value="transfer">Transfer</option>
-              </select>
-
-              <input
-                value={paymentComment}
-                onChange={(e) => setPaymentComment(e.target.value)}
-                placeholder="Izoh"
-                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-slate-400"
-              />
-            </div>
-
-            <div className="mt-6 flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setShowPaymentModal(false)}
-                className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
-              >
-                Bekor qilish
-              </button>
-
-              <button
-                type="button"
-                onClick={createPayment}
-                className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
-              >
-                Saqlash
-              </button>
-            </div>
-          </div>
+        <div className="grid grid-cols-2 gap-4">
+          <Stat label="Jami USD" value={money(totals.usd, "USD")} />
+          <Stat label="Jami UZS" value={money(totals.uzs, "UZS")} />
+          <Stat label="To‘langan USD" value={money(totals.paidUsd, "USD")} />
+          <Stat label="To‘langan UZS" value={money(totals.paidUzs, "UZS")} />
         </div>
-      )}
+      </div>
+
+      <div className="premium-card mt-5 p-6">
+        <h2 className="mb-5 text-[24px] font-normal tracking-[-0.04em]">Qarzlar</h2>
+        <div className="overflow-hidden rounded-[22px] border border-[#edf2f7]">
+          <table className="w-full text-left text-[14px]">
+            <thead className="bg-[#f8fafc] text-[11px] uppercase tracking-[0.14em] text-[#8aa0ba]">
+              <tr>
+                <th className="p-4 font-normal">Summa</th>
+                <th className="p-4 font-normal">Muddat</th>
+                <th className="p-4 font-normal">Status</th>
+                <th className="p-4 font-normal">Izoh</th>
+              </tr>
+            </thead>
+            <tbody>
+              {debts.map((debt) => (
+                <tr key={debt.id} className="border-t border-[#edf2f7]">
+                  <td className="p-4 text-[#111827]">{money(debt.amount, debt.currency)}</td>
+                  <td className="p-4 text-[#64748b]">{dateText(debt.dueDate)}</td>
+                  <td className="p-4"><span className="rounded-full bg-[#eef4ff] px-3 py-1.5 text-[12px] text-[#315efb]">{debt.status}</span></td>
+                  <td className="p-4 text-[#64748b]">{debt.comment || "—"}</td>
+                </tr>
+              ))}
+              {!debts.length ? <tr><td colSpan={4} className="p-10 text-center text-[#8aa0ba]">Qarz yo‘q</td></tr> : null}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </AppLayout>
   );
 }
 
-function InfoCard({ title, value }: { title: string; value: string }) {
-  return (
-    <div className="rounded-[18px] border border-slate-200 bg-white p-5 shadow-sm">
-      <p className="text-[13px] font-medium text-slate-400">{title}</p>
-      <p className="mt-2 text-[16px] font-semibold text-slate-900">{value}</p>
-    </div>
-  );
+function Stat({ label, value }: { label: string; value: string }) {
+  return <div className="premium-card p-6"><p className="text-[13px] text-[#64748b]">{label}</p><p className="mt-5 text-[26px] font-normal tracking-[-0.05em] text-[#111827]">{value}</p></div>;
 }
 
-function CurrencyPanel({
-  title,
-  total,
-  paid,
-  remaining,
-  currency,
-}: {
-  title: string;
-  total: number;
-  paid: number;
-  remaining: number;
-  currency: string;
-}) {
-  return (
-    <div className="rounded-[18px] border border-slate-200 bg-white p-5 shadow-sm">
-      <p className="text-[15px] font-semibold text-slate-950">{title}</p>
-
-      <div className="mt-4 grid grid-cols-3 gap-3">
-        <MiniMoney title="Jami" value={total} currency={currency} />
-        <MiniMoney title="To‘langan" value={paid} currency={currency} green />
-        <MiniMoney title="Qoldiq" value={remaining} currency={currency} orange />
-      </div>
-    </div>
-  );
-}
-
-function MiniMoney({
-  title,
-  value,
-  currency,
-  green,
-  orange,
-}: {
-  title: string;
-  value: number;
-  currency: string;
-  green?: boolean;
-  orange?: boolean;
-}) {
-  return (
-    <div className="rounded-[16px] bg-slate-50 p-4">
-      <p className="text-[12px] font-medium text-slate-400">{title}</p>
-      <p
-        className={`mt-1.5 text-[14px] font-semibold ${
-          green ? "text-emerald-600" : orange ? "text-[#3B82F6]" : "text-slate-900"
-        }`}
-      >
-        {money(value)} {currency}
-      </p>
-    </div>
-  );
-}
-
-function MiniStat({
-  title,
-  value,
-}: {
-  title: string;
-  value: string | number;
-}) {
-  return (
-    <div className="rounded-[16px] bg-slate-50 p-4">
-      <p className="text-[12px] font-medium text-slate-400">{title}</p>
-      <p className="mt-1.5 text-[14px] font-semibold text-slate-900">
-        {typeof value === "number" ? money(value) : value}
-      </p>
-    </div>
-  );
+function Info({ label, value }: { label: string; value: string }) {
+  return <div className="flex items-center justify-between rounded-[18px] bg-[#f8fafc] px-4 py-3"><span className="text-[#8aa0ba]">{label}</span><span className="text-[#111827]">{value}</span></div>;
 }
