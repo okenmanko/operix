@@ -1,51 +1,97 @@
 "use client";
 
-import { ActionKey, can } from "../../lib/permissions";
+import type { ReactNode } from "react";
 
-type Item = {
+type ActionItem = {
   label: string;
-  icon?: React.ReactNode;
-  action?: ActionKey;
-  onClick: () => void;
-  variant?: "primary" | "soft" | "danger";
+  icon?: ReactNode;
+  action?: string;
+  href?: string;
+  variant?: "primary" | "soft" | "danger" | "ghost";
+  onClick?: () => void;
 };
 
-export default function ActionBar({
-  title,
-  subtitle,
-  items,
-}: {
+type ActionBarProps = {
   title?: string;
   subtitle?: string;
-  items: Item[];
-}) {
-  const visible = items.filter((item) => !item.action || can(item.action));
-  if (!visible.length && !title) return null;
+  children?: ReactNode;
+  items?: ActionItem[];
+  className?: string;
+};
 
+export function ActionBar({
+  title,
+  subtitle,
+  children,
+  items = [],
+  className = "",
+}: ActionBarProps) {
   return (
-    <div className="premium-card mb-5 p-5">
-      <div className="flex flex-wrap items-center justify-between gap-4">
+    <div className={`mb-5 rounded-[26px] border border-[#e7edf5] bg-white p-5 shadow-[0_18px_50px_rgba(15,23,42,0.05)] ${className}`}>
+      <div className="flex items-center justify-between gap-4">
         <div>
-          {title ? <h2 className="text-[21px] font-normal tracking-[-0.04em] text-[#101828]">{title}</h2> : null}
-          {subtitle ? <p className="mt-1 text-[13px] leading-5 text-[#8aa0ba]">{subtitle}</p> : null}
+          {title ? (
+            <h2 className="text-[24px] font-normal tracking-[-0.04em] text-[#111827]">
+              {title}
+            </h2>
+          ) : null}
+
+          {subtitle ? (
+            <p className="mt-1 text-[13px] text-[#8aa0ba]">
+              {subtitle}
+            </p>
+          ) : null}
         </div>
 
-        <div className="flex flex-wrap gap-3">
-          {visible.map((item) => {
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          {items.map((item, index) => {
+            const variant = item.variant || (index === 0 ? "primary" : "soft");
+
             const cls =
-              item.variant === "danger"
-                ? "bg-[#fff5f5] text-[#d92d20] hover:bg-[#fee4e2]"
-                : item.variant === "soft"
-                  ? "bg-[#f5f7fa] text-[#52637a] hover:bg-[#eef3f8] hover:text-[#315efb]"
-                  : "bg-[#315efb] text-white shadow-[0_14px_30px_rgba(49,94,251,0.16)] hover:bg-[#2754de]";
+              variant === "primary"
+                ? "bg-[#315efb] text-white shadow-[0_14px_30px_rgba(49,94,251,0.14)] hover:bg-[#2754de]"
+                : variant === "danger"
+                  ? "bg-[#fff5f5] text-[#d92d20] hover:bg-[#fee4e2]"
+                  : variant === "ghost"
+                    ? "bg-transparent text-[#52637a] hover:bg-[#f5f7fa]"
+                    : "bg-[#f5f7fa] text-[#52637a] hover:bg-[#eef3f8] hover:text-[#315efb]";
+
+            const content = (
+              <>
+                {item.icon ? <span className="flex items-center">{item.icon}</span> : null}
+                <span>{item.label}</span>
+              </>
+            );
+
+            if (item.href) {
+              return (
+                <a
+                  key={`${item.label}-${index}`}
+                  href={item.href}
+                  className={`inline-flex h-11 items-center justify-center gap-2 rounded-[16px] px-4 text-[13px] font-normal transition ${cls}`}
+                >
+                  {content}
+                </a>
+              );
+            }
+
             return (
-              <button key={item.label} type="button" onClick={item.onClick} className={`h-12 rounded-[18px] px-5 text-[14px] font-normal transition ${cls}`}>
-                <span className="inline-flex items-center gap-2">{item.icon}{item.label}</span>
+              <button
+                key={`${item.label}-${index}`}
+                type="button"
+                onClick={item.onClick}
+                className={`inline-flex h-11 items-center justify-center gap-2 rounded-[16px] px-4 text-[13px] font-normal transition ${cls}`}
+              >
+                {content}
               </button>
             );
           })}
+
+          {children}
         </div>
       </div>
     </div>
   );
 }
+
+export default ActionBar;

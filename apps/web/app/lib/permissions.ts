@@ -2,49 +2,69 @@
 
 import { getStoredUser } from "./api";
 
-type Role = "SUPER_ADMIN" | "OWNER" | "ADMIN" | "MANAGER" | "ACCOUNTANT" | "CASHIER" | "VIEWER";
+export type Role = "OWNER" | "ADMIN" | "MANAGER" | "ACCOUNTANT" | "COURIER" | "USER" | "SUPER_ADMIN";
 
-const ROLE_PERMISSIONS: Record<Role, string[]> = {
-  SUPER_ADMIN: ["*"],
-  OWNER: ["*"],
-  ADMIN: ["clients:*", "debts:*", "payments:*", "reports:*", "analytics:*", "inventory:*", "products:*", "warehouses:*", "stock:*", "qr:*", "sales:*", "settings:*", "integrations:*"],
-  MANAGER: ["clients:read", "clients:create", "clients:update", "debts:read", "debts:create", "debts:update", "payments:read", "reports:read", "analytics:read", "products:read", "inventory:read"],
-  ACCOUNTANT: ["clients:read", "clients:import", "clients:export", "debts:*", "payments:*", "reports:*", "analytics:read", "settings:read"],
-  CASHIER: ["clients:read", "debts:read", "payments:read", "payments:create", "sales:*"],
-  VIEWER: ["clients:read", "debts:read", "payments:read", "reports:read", "analytics:read"],
+export const roleLabels: Record<string, string> = {
+  OWNER: "Owner",
+  ADMIN: "Admin",
+  MANAGER: "Manager",
+  ACCOUNTANT: "Accountant",
+  COURIER: "Courier",
+  USER: "User",
+  SUPER_ADMIN: "Super Admin",
 };
 
 export function currentRole(): Role {
-  try {
-    const user = getStoredUser();
-    const raw = String(user?.role || "OWNER").toUpperCase();
-    if (raw === "SUPERADMIN") return "SUPER_ADMIN";
-    if (raw in ROLE_PERMISSIONS) return raw as Role;
-    return "OWNER";
-  } catch {
-    return "OWNER";
-  }
+  const user = getStoredUser();
+  return ((user?.role || "OWNER").toUpperCase() as Role) || "OWNER";
 }
 
-export function can(permission: string) {
+export function can(action?: string, role: Role = currentRole()) {
+  const r = String(role || "OWNER").toUpperCase();
+
+  if (r === "SUPER_ADMIN" || r === "OWNER" || r === "ADMIN") return true;
+
+  const managerAllowed = [
+    "clients.view",
+    "clients.create",
+    "debts.view",
+    "debts.create",
+    "payments.view",
+    "reports.view",
+    "products.view",
+    "warehouses.view",
+    "inventory.view",
+    "sales.view",
+    "pos.view",
+  ];
+
+  const accountantAllowed = [
+    "clients.view",
+    "debts.view",
+    "payments.view",
+    "payments.create",
+    "reports.view",
+  ];
+
+  const courierAllowed = ["delivery.view", "delivery.update"];
+
+  if (!action) return true;
+  if (r === "MANAGER") return managerAllowed.includes(action);
+  if (r === "ACCOUNTANT") return accountantAllowed.includes(action);
+  if (r === "COURIER") return courierAllowed.includes(action);
+
+  return false;
+}
+
+export function hasPermission(action?: string) {
+  return can(action);
+}
+
+export function requireRole(roles: Role[] = []) {
   const role = currentRole();
-  const permissions = ROLE_PERMISSIONS[role] || [];
-
-  if (permissions.includes("*")) return true;
-  if (permissions.includes(permission)) return true;
-
-  const [module] = permission.split(":");
-  return permissions.includes(`${module}:*`);
+  return roles.length === 0 || roles.includes(role);
 }
 
-export function hasRole(...roles: Role[]) {
-  return roles.includes(currentRole());
-}
-
-export function safeGetStoredUser() {
-  try {
-    return getStoredUser();
-  } catch {
-    return { role: "OWNER" };
-  }
+export function isOwner() {
+  return ["OWNER", "ADMIN", "SUPER_ADMIN"].includes(currentRole());
 }

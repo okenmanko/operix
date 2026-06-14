@@ -47,7 +47,7 @@ export default function BIPage() {
   ];
 
   return (
-    <AppLayout>
+    <AppLayout title="BI" subtitle="Business intelligence">
       <div className="space-y-6">
         <div className="flex items-start justify-between gap-4">
           <div>

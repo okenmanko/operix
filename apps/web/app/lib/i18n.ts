@@ -1,96 +1,88 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import React, { createContext, useContext, useMemo, useState } from "react";
 
 export type Lang = "uz" | "ru";
 
-export const dict = {
+type I18nValue = {
+  lang: Lang;
+  setLang: (lang: Lang) => void;
+  t: (key: string, fallback?: string) => string;
+};
+
+const dictionary: Record<Lang, Record<string, string>> = {
   uz: {
     dashboard: "Dashboard",
     clients: "Mijozlar",
     debts: "Qarzlar",
     payments: "To‘lovlar",
     reports: "Hisobotlar",
-    delivery: "Delivery",
-    inventory: "Sklad",
-    warehouses: "Skladlar",
-    qrCodes: "QR kodlar",
-    qrScanner: "QR Scanner",
-    movements: "Harakatlar",
-    cashflow: "DDS",
-    integrations: "Integratsiyalar",
+    analytics: "Analytics",
+    inventory: "Inventory",
+    products: "Products",
+    warehouses: "Omborlar",
     settings: "Sozlamalar",
+    integrations: "Integratsiyalar",
     logout: "Chiqish",
-    company: "Digi World",
-    user: "Aziz",
-    starter: "STARTER",
-    businessman: "BUSINESSMAN",
-    pro: "PRO",
-    light: "Light",
-    dark: "Dark",
+    save: "Saqlash",
+    search: "Qidirish",
+    import: "Import",
+    export: "Export",
   },
   ru: {
-    dashboard: "Dashboard",
+    dashboard: "Дашборд",
     clients: "Клиенты",
     debts: "Долги",
     payments: "Платежи",
-    reports: "Отчёты",
-    delivery: "Доставка",
+    reports: "Отчеты",
+    analytics: "Аналитика",
     inventory: "Склад",
+    products: "Товары",
     warehouses: "Склады",
-    qrCodes: "QR коды",
-    qrScanner: "QR Сканер",
-    movements: "Движения",
-    cashflow: "ДДС",
-    integrations: "Интеграции",
     settings: "Настройки",
+    integrations: "Интеграции",
     logout: "Выйти",
-    company: "Digi World",
-    user: "Aziz",
-    starter: "STARTER",
-    businessman: "BUSINESSMAN",
-    pro: "PRO",
-    light: "Light",
-    dark: "Dark",
+    save: "Сохранить",
+    search: "Поиск",
+    import: "Импорт",
+    export: "Экспорт",
   },
 };
 
-export type I18nKey = keyof typeof dict.uz;
+const I18nContext = createContext<I18nValue>({
+  lang: "uz",
+  setLang: () => {},
+  t: (_key: string, fallback?: string) => fallback || _key,
+});
 
-const I18nContext = createContext<{
-  lang: Lang;
-  setLang: (lang: Lang) => void;
-  t: (key: I18nKey) => string;
-} | null>(null);
-
-export function I18nProvider({ children }: { children: ReactNode }) {
-  const [lang, setLangState] = useState<Lang>("uz");
-
-  useEffect(() => {
-    const saved = localStorage.getItem("operix_lang") as Lang | null;
-    if (saved === "uz" || saved === "ru") setLangState(saved);
-  }, []);
+export function I18nProvider({ children }: { children: React.ReactNode }) {
+  const [lang, setLangState] = useState<Lang>(() => {
+    if (typeof window === "undefined") return "uz";
+    return (localStorage.getItem("operix_lang") as Lang) || "uz";
+  });
 
   function setLang(next: Lang) {
     setLangState(next);
-    localStorage.setItem("operix_lang", next);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("operix_lang", next);
+    }
   }
 
-  function t(key: I18nKey) {
-    return dict[lang][key] || dict.uz[key] || key;
-  }
+  const value = useMemo<I18nValue>(() => {
+    return {
+      lang,
+      setLang,
+      t: (key: string, fallback?: string) => dictionary[lang]?.[key] || fallback || key,
+    };
+  }, [lang]);
 
-  return <I18nContext.Provider value={{ lang, setLang, t }}>{children}</I18nContext.Provider>;
+  return React.createElement(I18nContext.Provider, { value }, children);
 }
 
 export function useI18n() {
-  const ctx = useContext(I18nContext);
-  if (!ctx) {
-    return {
-      lang: "uz" as Lang,
-      setLang: () => {},
-      t: (key: I18nKey) => dict.uz[key] || key,
-    };
-  }
-  return ctx;
+  return useContext(I18nContext);
+}
+
+export function t(key: string, fallback?: string) {
+  return dictionary.uz[key] || fallback || key;
 }
