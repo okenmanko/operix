@@ -1,0 +1,10 @@
+// ADD TO apps/api/src/app.module.ts
+
+import { InventoryModule } from './inventory/inventory.module';
+import { CashflowModule } from './cashflow/cashflow.module';
+
+// imports: [
+//   ...
+//   InventoryModule,
+//   CashflowModule,
+// ]

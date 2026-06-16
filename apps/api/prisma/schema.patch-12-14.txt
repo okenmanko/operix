@@ -1,0 +1,89 @@
+# Qo'shish kerak bo'lgan Prisma relations/model additions
+
+# Company model ichiga qo'sh:
+# permissions UserPermission[]
+# employees Employee[]
+# attendanceRecords AttendanceRecord[]
+# payrollItems PayrollItem[]
+
+# User model ichiga qo'sh:
+# permissions UserPermission[]
+
+model UserPermission {
+  id        String   @id @default(cuid())
+  module    String
+  canView   Boolean  @default(false)
+  canCreate Boolean  @default(false)
+  canUpdate Boolean  @default(false)
+  canDelete Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, userId, module])
+  @@index([companyId])
+  @@index([userId])
+}
+
+model Employee {
+  id        String   @id @default(cuid())
+  fullName  String
+  phone     String?
+  position  String?
+  salaryUZS Float?
+  status    String   @default("ACTIVE")
+  hiredAt   DateTime @default(now())
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  attendance   AttendanceRecord[]
+  payrollItems PayrollItem[]
+
+  @@index([companyId])
+  @@index([status])
+}
+
+model AttendanceRecord {
+  id        String   @id @default(cuid())
+  date      DateTime @default(now())
+  status    String   @default("PRESENT")
+  checkIn   DateTime?
+  checkOut  DateTime?
+  comment   String?
+  createdAt DateTime @default(now())
+
+  companyId  String
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([employeeId])
+  @@index([date])
+}
+
+model PayrollItem {
+  id        String   @id @default(cuid())
+  type      String   @default("BONUS")
+  amountUZS Float
+  reason    String?
+  period    String?
+  createdAt DateTime @default(now())
+
+  companyId  String
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([employeeId])
+  @@index([type])
+}

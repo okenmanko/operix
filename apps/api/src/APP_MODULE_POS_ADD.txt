@@ -1,0 +1,9 @@
+// APP MODULE ADD
+
+1) apps/api/src/app.module.ts tepasiga qo‘sh:
+
+import { PosModule } from './pos/pos.module';
+
+2) imports ichiga qo‘sh:
+
+PosModule,

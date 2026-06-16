@@ -1,0 +1,65 @@
+PASTE INTO inventory.service.ts inside InventoryService class:
+
+async transfer(companyId: string, data: any) {
+  const productId = data.productId;
+  const fromWarehouseId = data.fromWarehouseId;
+  const toWarehouseId = data.toWarehouseId;
+  const quantity = Number(data.quantity || 1);
+
+  if (!productId || !fromWarehouseId || !toWarehouseId) {
+    throw new BadRequestException('productId, fromWarehouseId, toWarehouseId kerak');
+  }
+
+  if (fromWarehouseId === toWarehouseId) {
+    throw new BadRequestException('Skladlar bir xil bo‘lmasligi kerak');
+  }
+
+  if (!Number.isFinite(quantity) || quantity < 1) {
+    throw new BadRequestException('quantity 1 dan katta bo‘lishi kerak');
+  }
+
+  await this.ensureProduct(companyId, productId);
+  await this.ensureWarehouse(companyId, fromWarehouseId);
+  await this.ensureWarehouse(companyId, toWarehouseId);
+
+  const items = await this.prisma.stockItem.findMany({
+    where: { companyId, productId, warehouseId: fromWarehouseId, status: 'IN_STOCK' },
+    orderBy: { createdAt: 'asc' },
+    take: quantity,
+  });
+
+  if (items.length < quantity) {
+    throw new BadRequestException(`Yetarli qoldiq yo‘q. Bor: ${items.length}`);
+  }
+
+  for (const item of items) {
+    await this.prisma.stockItem.update({
+      where: { id: item.id },
+      data: { warehouseId: toWarehouseId },
+    });
+
+    await this.prisma.stockMovement.create({
+      data: {
+        companyId,
+        productId,
+        stockItemId: item.id,
+        warehouseId: toWarehouseId,
+        fromWarehouseId,
+        toWarehouseId,
+        type: 'TRANSFER',
+        quantity: 1,
+        reason: 'Sklad transfer',
+        comment: data.comment?.trim() || null,
+      },
+    });
+  }
+
+  return { ok: true, moved: items.length };
+}
+
+PASTE INTO inventory.controller.ts inside InventoryController class:
+
+@Post('transfer')
+transfer(@CurrentUser() user: AuthUser, @Body() body: any) {
+  return this.service.transfer(user.companyId, body);
+}

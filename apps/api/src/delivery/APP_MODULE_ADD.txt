@@ -1,0 +1,3 @@
+// apps/api/src/app.module.ts ichida qo'sh:
+// import { DeliveryModule } from './delivery/delivery.module';
+// imports array ichiga DeliveryModule qo'sh.

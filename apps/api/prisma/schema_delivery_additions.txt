@@ -1,0 +1,26 @@
+// schema.prisma ichida model Company ichiga qo'sh:
+// deliveryOrders DeliveryOrder[]
+
+model DeliveryOrder {
+  id            String   @id @default(cuid())
+  companyId     String
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  clientName    String
+  phone         String?
+  address       String
+  items         Json?
+  amount        Float    @default(0)
+  currency      String   @default("UZS")
+  paymentStatus String   @default("UNPAID")
+  status        String   @default("NEW")
+
+  courierName   String?
+  courierPhone  String?
+  deliveryDate  DateTime?
+  comment       String?
+  photos        Json?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @default(now()) @updatedAt
+}

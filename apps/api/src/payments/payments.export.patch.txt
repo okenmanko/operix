@@ -1,0 +1,39 @@
+Add to payments.controller.ts if export endpoint does not exist:
+
+import type { Response } from 'express';
+import { Res } from '@nestjs/common';
+
+@Get('export-excel')
+async exportExcel(@CurrentUser() user: AuthUser, @Res() res: Response) {
+  const buffer = await this.paymentsService.exportExcel(user.companyId);
+  res.setHeader('Content-Disposition', 'attachment; filename="operix-payments.xlsx"');
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.send(buffer);
+}
+
+Add to payments.service.ts if exportExcel does not exist:
+
+import * as XLSX from 'xlsx';
+
+async exportExcel(companyId: string) {
+  const payments = await this.prisma.payment.findMany({
+    where: { companyId },
+    include: { debt: { include: { client: true } } },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  const rows = payments.map((payment) => ({
+    Mijoz: payment.debt?.client?.fullName || '',
+    Telefon: payment.debt?.client?.phone || '',
+    Summa: payment.amount,
+    Valyuta: payment.currency,
+    Method: payment.method || '',
+    Izoh: payment.comment || '',
+    Sana: payment.createdAt,
+  }));
+
+  const sheet = XLSX.utils.json_to_sheet(rows);
+  const book = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(book, sheet, 'Payments');
+  return XLSX.write(book, { type: 'buffer', bookType: 'xlsx' });
+}
