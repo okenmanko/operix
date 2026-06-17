@@ -9,9 +9,11 @@ import { ReportsModule } from './reports/reports.module';
 import { TelegramModule } from './telegram/telegram.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { IntegrationsModule } from './integrations/integrations.module';
+import { SuperAdminModule } from './super-admin/super-admin.module';
 
 @Module({
   imports: [
+    SuperAdminModule,
     PrismaModule,
     AuthModule,
     ClientsModule,
