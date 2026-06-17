@@ -155,3 +155,39 @@ html.dark .text-slate-400 { color: var(--muted-2) !important; }
   main, section { margin: 0 !important; padding: 0 !important; }
   body { background: white !important; color: black !important; }
 }
+
+/* PATCH 03: stronger dark-mode support for old hardcoded pages */
+html.dark .bg-\[\#f8fafc\],
+html.dark .bg-\[\#f5f7fa\],
+html.dark .bg-\[\#f5f8fc\],
+html.dark .bg-slate-50,
+html.dark .bg-slate-100 {
+  background-color: var(--soft) !important;
+}
+
+html.dark .bg-\[\#eef4ff\] {
+  background-color: var(--blue-soft) !important;
+}
+
+html.dark .border-\[\#edf2f7\],
+html.dark .border-\[\#dfe8f3\] {
+  border-color: var(--line-soft) !important;
+}
+
+html.dark .text-\[\#52637a\],
+html.dark .text-\[\#637083\],
+html.dark .text-\[\#6d7b90\],
+html.dark .text-\[\#66758d\],
+html.dark .text-\[\#64748b\],
+html.dark .text-slate-600,
+html.dark .text-slate-700 {
+  color: var(--muted) !important;
+}
+
+html.dark input,
+html.dark textarea,
+html.dark select {
+  background-color: var(--input-bg) !important;
+  border-color: var(--input-line) !important;
+  color: var(--text) !important;
+}
