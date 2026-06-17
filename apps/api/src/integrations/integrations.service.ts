@@ -72,7 +72,7 @@ export class IntegrationsService {
   async syncMoyskladClients(companyId: string) {
     try {
       const settings = await this.getRawSettings(companyId);
-      const data = await this.moyskladFetchAll(settings, '/entity/counterparty', 1000);
+      const data = await this.moyskladFetchAll(settings, '/entity/counterparty', 200, 20);
       const rows = Array.isArray(data) ? data : [];
       let created = 0;
       let updated = 0;
@@ -119,7 +119,11 @@ export class IntegrationsService {
 
       // ENG MUHIMI: qarzni counterparty entitydan emas, aynan MoySklad qarzdorlik reportidan olamiz.
       // Entityda ko'p kontragentlarda balance kelmaydi. Shuning uchun 15 ta chiqib qolgan.
-      const reportRows = await this.loadMoyskladCounterpartyReport(settings);
+      const reportRows = await this.withTimeout(
+        this.loadMoyskladCounterpartyReport(settings),
+        90_000,
+        'MoySklad qarzdorlik hisoboti 90 sekunddan oshib ketdi. Keyinroq yana Sync debts bosing yoki MoySklad token/huquqlarini tekshiring.',
+      );
 
       let created = 0;
       let updatedClients = 0;
@@ -222,7 +226,7 @@ export class IntegrationsService {
   async syncMoyskladProducts(companyId: string) {
     try {
       const settings = await this.getRawSettings(companyId);
-      const rows = await this.moyskladFetchAll(settings, '/entity/product', 1000);
+      const rows = await this.moyskladFetchAll(settings, '/entity/product', 200, 50);
       let created = 0;
       let updated = 0;
       let skipped = 0;
@@ -245,7 +249,7 @@ export class IntegrationsService {
   async syncMoyskladWarehouses(companyId: string) {
     try {
       const settings = await this.getRawSettings(companyId);
-      const rows = await this.moyskladFetchAll(settings, '/entity/store', 1000);
+      const rows = await this.moyskladFetchAll(settings, '/entity/store', 100, 10);
       let created = 0;
       let updated = 0;
       let skipped = 0;
@@ -270,9 +274,9 @@ export class IntegrationsService {
       const settings = await this.getRawSettings(companyId);
       let data: any;
       try {
-        data = await this.moyskladFetch(settings, '/report/stock/all?limit=1000&stockByStore=true');
+        data = await this.moyskladFetch(settings, '/report/stock/all?limit=200&stockByStore=true');
       } catch {
-        data = await this.moyskladFetch(settings, '/report/stock/all?limit=1000');
+        data = await this.moyskladFetch(settings, '/report/stock/all?limit=200');
       }
 
       const rows = Array.isArray(data?.rows) ? data.rows : [];
@@ -286,12 +290,16 @@ export class IntegrationsService {
   }
 
   async syncMoyskladAll(companyId: string) {
-    const clients = await this.syncMoyskladClients(companyId);
-    const debts = await this.syncMoyskladDebts(companyId);
-    const warehouses = await this.syncMoyskladWarehouses(companyId);
-    const products = await this.syncMoyskladProducts(companyId);
-    const stock = await this.syncMoyskladStock(companyId);
-    return { ok: Boolean(clients.ok && debts.ok && products.ok && warehouses.ok && stock.ok), message: 'Sync all tugadi', clients, debts, warehouses, products, stock };
+    const clients = await this.withTimeout(this.syncMoyskladClients(companyId), 90_000, 'Mijozlar sync 90 sekunddan oshdi');
+    const debts = await this.withTimeout(this.syncMoyskladDebts(companyId), 120_000, 'Qarzlar sync 120 sekunddan oshdi');
+    const warehouses = await this.withTimeout(this.syncMoyskladWarehouses(companyId), 60_000, 'Omborlar sync 60 sekunddan oshdi');
+    const products = await this.withTimeout(this.syncMoyskladProducts(companyId), 120_000, 'Tovarlar sync 120 sekunddan oshdi');
+
+    // Stock report MoySklad'da eng og'ir endpoint. Sync all tugamay aylanib qolmasligi uchun uni alohida qilamiz.
+    // Qoldiq kerak bo'lsa Integrations sahifasida alohida stock sync endpoint qo'shamiz.
+    const stock = { ok: true, message: 'Qoldiq sync all ichidan vaqtincha chiqarildi. Tovarlar/omborlar/qarzlar sync bo‘ladi.' };
+
+    return { ok: Boolean(clients.ok && debts.ok && products.ok && warehouses.ok), message: 'Sync all tugadi', clients, debts, warehouses, products, stock };
   }
 
   async testOneC(companyId: string) {
@@ -312,6 +320,21 @@ export class IntegrationsService {
     const clients = await this.syncOneCClients(companyId);
     const products = await this.syncOneCProducts(companyId);
     return { ok: false, message: '1C mapping kerak', clients, products };
+  }
+
+
+  private async withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+    let timer: NodeJS.Timeout | null = null;
+    try {
+      return await Promise.race([
+        promise,
+        new Promise<T>((_, reject) => {
+          timer = setTimeout(() => reject(new Error(message)), ms);
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   private async getRawSettings(companyId: string): Promise<Settings> {
@@ -355,7 +378,7 @@ export class IntegrationsService {
 
     for (const path of attempts) {
       try {
-        const part = await this.moyskladFetchAll(settings, path, 1000, 100);
+        const part = await this.moyskladFetchAll(settings, path, 100, 20);
         if (part.length) rows.push(...part);
         if (rows.length) break;
       } catch (error: any) {
@@ -402,9 +425,27 @@ export class IntegrationsService {
     if (!settings.moyskladToken) throw new Error('MoySklad API token kiritilmagan');
     const base = (settings.moyskladApiUrl || 'https://api.moysklad.ru/api/remap/1.2').replace(/\/$/, '');
     const token = settings.moyskladToken.trim();
-    const response = await fetch(`${base}${path}`, {
-      headers: { Accept: 'application/json;charset=utf-8', 'Content-Type': 'application/json;charset=utf-8', Authorization: token.toLowerCase().startsWith('bearer ') ? token : `Bearer ${token}` },
-    });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 45_000);
+
+    let response: Response;
+    try {
+      response = await fetch(`${base}${path}`, {
+        signal: controller.signal,
+        headers: {
+          Accept: 'application/json;charset=utf-8',
+          'Content-Type': 'application/json;charset=utf-8',
+          Authorization: token.toLowerCase().startsWith('bearer ') ? token : `Bearer ${token}`,
+        },
+      });
+    } catch (error: any) {
+      if (error?.name === 'AbortError') {
+        throw new Error(`MoySklad javob bermadi: ${path}`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
     const text = await response.text();
     let data: any = null;
     if (text) { try { data = JSON.parse(text); } catch { data = text; } }
