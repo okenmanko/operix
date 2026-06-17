@@ -1,27 +1,14 @@
 "use client";
 
-import React, {
-  createContext,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
-} from "react";
+import React, { createContext, useContext, useMemo, useState } from "react";
 
 export type Lang = "uz" | "ru" | "en";
 
-export type I18nValue = {
+type I18nValue = {
   lang: Lang;
   setLang: (lang: Lang) => void;
   t: (key: string, fallback?: string) => string;
 };
-
-export const LANGS: Array<{ value: Lang; label: string }> = [
-  { value: "uz", label: "UZ" },
-  { value: "ru", label: "RU" },
-  { value: "en", label: "EN" },
-];
 
 const dictionary: Record<Lang, Record<string, string>> = {
   uz: {
@@ -30,37 +17,6 @@ const dictionary: Record<Lang, Record<string, string>> = {
     clients: "Mijozlar",
     debts: "Qarzlar",
     payments: "To‘lovlar",
-    reports: "Hisobotlar",
-    analytics: "Analytics",
-    inventory: "Sklad",
-    products: "Mahsulotlar",
-    warehouses: "Omborlar",
-    settings: "Sozlamalar",
-    integrations: "Integratsiyalar",
-    delivery: "Delivery",
-    qrCodes: "QR kodlar",
-    qrScanner: "QR Scanner",
-    movements: "Harakatlar",
-    cashflow: "DDS",
-    sales: "Sotuv POS",
-    billing: "Billing",
-    superAdmin: "Super Admin",
-    companies: "Kompaniyalar",
-    users: "Userlar",
-    logout: "Chiqish",
-    save: "Saqlash",
-    cancel: "Bekor qilish",
-    edit: "Tahrirlash",
-    delete: "O‘chirish",
-    search: "Qidirish",
-    import: "Import",
-    export: "Export",
-    light: "Light",
-    dark: "Dark",
-    language: "Til",
-    theme: "Rejim",
-    businessOS: "Business OS",
-    controlCenter: "Operix Control Center",
     todayPayment: "Bugungi to‘lov",
     uzsBalance: "UZS balans",
     usdBalance: "USD balans",
@@ -72,17 +28,27 @@ const dictionary: Record<Lang, Record<string, string>> = {
     closed: "Yopilgan",
     overdue: "Muddati o‘tgan",
     topDebtors: "Top qarzdorlar",
+    noTopDebtors: "Top qarzdorlar yo‘q",
     client: "Mijoz",
     phone: "Telefon",
     debt: "Qarz",
-    noTopDebtors: "Top qarzdorlar yo‘q",
-    dashboardLoadError: "Dashboard yuklanmadi",
-    noData: "Ma’lumot yo‘q",
-    productTypes: "Mahsulot turi",
-    totalStock: "Jami qoldiq",
-    totalAmount: "Jami summa",
-    items: "dona",
-    all: "Hammasi",
+    reports: "Hisobotlar",
+    analytics: "Analytics",
+    inventory: "Sklad",
+    products: "Mahsulotlar",
+    warehouses: "Omborlar",
+    stockMovements: "Harakatlar",
+    qrCodes: "QR kodlar",
+    pos: "Sotuv POS",
+    settings: "Sozlamalar",
+    integrations: "Integratsiyalar",
+    logout: "Chiqish",
+    light: "Light",
+    dark: "Dark",
+    save: "Saqlash",
+    search: "Qidirish",
+    import: "Import",
+    export: "Export",
   },
   ru: {
     dashboard: "Дашборд",
@@ -90,38 +56,7 @@ const dictionary: Record<Lang, Record<string, string>> = {
     clients: "Клиенты",
     debts: "Долги",
     payments: "Платежи",
-    reports: "Отчёты",
-    analytics: "Аналитика",
-    inventory: "Склад",
-    products: "Товары",
-    warehouses: "Склады",
-    settings: "Настройки",
-    integrations: "Интеграции",
-    delivery: "Доставка",
-    qrCodes: "QR коды",
-    qrScanner: "QR сканер",
-    movements: "Движения",
-    cashflow: "ДДС",
-    sales: "Продажи POS",
-    billing: "Биллинг",
-    superAdmin: "Супер Админ",
-    companies: "Компании",
-    users: "Пользователи",
-    logout: "Выйти",
-    save: "Сохранить",
-    cancel: "Отмена",
-    edit: "Редактировать",
-    delete: "Удалить",
-    search: "Поиск",
-    import: "Импорт",
-    export: "Экспорт",
-    light: "Светлая",
-    dark: "Тёмная",
-    language: "Язык",
-    theme: "Режим",
-    businessOS: "Business OS",
-    controlCenter: "Operix Control Center",
-    todayPayment: "Платежи сегодня",
+    todayPayment: "Оплата сегодня",
     uzsBalance: "Баланс UZS",
     usdBalance: "Баланс USD",
     debtStatuses: "Статусы долгов",
@@ -131,18 +66,28 @@ const dictionary: Record<Lang, Record<string, string>> = {
     active: "Активные",
     closed: "Закрытые",
     overdue: "Просроченные",
-    topDebtors: "Топ должники",
+    topDebtors: "Топ должников",
+    noTopDebtors: "Должников нет",
     client: "Клиент",
     phone: "Телефон",
     debt: "Долг",
-    noTopDebtors: "Топ должников нет",
-    dashboardLoadError: "Дашборд не загрузился",
-    noData: "Данных нет",
-    productTypes: "Виды товаров",
-    totalStock: "Общий остаток",
-    totalAmount: "Общая сумма",
-    items: "шт",
-    all: "Все",
+    reports: "Отчёты",
+    analytics: "Аналитика",
+    inventory: "Склад",
+    products: "Товары",
+    warehouses: "Склады",
+    stockMovements: "Движения",
+    qrCodes: "QR коды",
+    pos: "Продажи POS",
+    settings: "Настройки",
+    integrations: "Интеграции",
+    logout: "Выйти",
+    light: "Светлая",
+    dark: "Тёмная",
+    save: "Сохранить",
+    search: "Поиск",
+    import: "Импорт",
+    export: "Экспорт",
   },
   en: {
     dashboard: "Dashboard",
@@ -150,37 +95,6 @@ const dictionary: Record<Lang, Record<string, string>> = {
     clients: "Clients",
     debts: "Debts",
     payments: "Payments",
-    reports: "Reports",
-    analytics: "Analytics",
-    inventory: "Inventory",
-    products: "Products",
-    warehouses: "Warehouses",
-    settings: "Settings",
-    integrations: "Integrations",
-    delivery: "Delivery",
-    qrCodes: "QR codes",
-    qrScanner: "QR scanner",
-    movements: "Movements",
-    cashflow: "Cashflow",
-    sales: "Sales POS",
-    billing: "Billing",
-    superAdmin: "Super Admin",
-    companies: "Companies",
-    users: "Users",
-    logout: "Logout",
-    save: "Save",
-    cancel: "Cancel",
-    edit: "Edit",
-    delete: "Delete",
-    search: "Search",
-    import: "Import",
-    export: "Export",
-    light: "Light",
-    dark: "Dark",
-    language: "Language",
-    theme: "Theme",
-    businessOS: "Business OS",
-    controlCenter: "Operix Control Center",
     todayPayment: "Today payment",
     uzsBalance: "UZS balance",
     usdBalance: "USD balance",
@@ -192,54 +106,53 @@ const dictionary: Record<Lang, Record<string, string>> = {
     closed: "Closed",
     overdue: "Overdue",
     topDebtors: "Top debtors",
+    noTopDebtors: "No top debtors",
     client: "Client",
     phone: "Phone",
     debt: "Debt",
-    noTopDebtors: "No top debtors",
-    dashboardLoadError: "Dashboard did not load",
-    noData: "No data",
-    productTypes: "Product types",
-    totalStock: "Total stock",
-    totalAmount: "Total amount",
-    items: "pcs",
-    all: "All",
+    reports: "Reports",
+    analytics: "Analytics",
+    inventory: "Inventory",
+    products: "Products",
+    warehouses: "Warehouses",
+    stockMovements: "Movements",
+    qrCodes: "QR codes",
+    pos: "Sales POS",
+    settings: "Settings",
+    integrations: "Integrations",
+    logout: "Logout",
+    light: "Light",
+    dark: "Dark",
+    save: "Save",
+    search: "Search",
+    import: "Import",
+    export: "Export",
   },
 };
-
-function normalizeLang(value: string | null): Lang {
-  if (value === "uz" || value === "ru" || value === "en") return value;
-  return "uz";
-}
 
 const I18nContext = createContext<I18nValue>({
   lang: "uz",
   setLang: () => {},
-  t: (key: string, fallback?: string) => fallback || key,
+  t: (_key: string, fallback?: string) => fallback || _key,
 });
 
-export function I18nProvider({ children }: { children: ReactNode }) {
-  const [lang, setLangState] = useState<Lang>("uz");
-
-  useEffect(() => {
-    setLangState(normalizeLang(localStorage.getItem("operix_lang")));
-  }, []);
+export function I18nProvider({ children }: { children: React.ReactNode }) {
+  const [lang, setLangState] = useState<Lang>(() => {
+    if (typeof window === "undefined") return "uz";
+    const saved = localStorage.getItem("operix_lang") as Lang | null;
+    return saved === "ru" || saved === "en" || saved === "uz" ? saved : "uz";
+  });
 
   function setLang(next: Lang) {
     setLangState(next);
-    if (typeof window !== "undefined") {
-      localStorage.setItem("operix_lang", next);
-      document.documentElement.lang = next;
-    }
+    if (typeof window !== "undefined") localStorage.setItem("operix_lang", next);
   }
 
-  const value = useMemo<I18nValue>(
-    () => ({
-      lang,
-      setLang,
-      t: (key: string, fallback?: string) => dictionary[lang]?.[key] || fallback || key,
-    }),
-    [lang],
-  );
+  const value = useMemo<I18nValue>(() => ({
+    lang,
+    setLang,
+    t: (key: string, fallback?: string) => dictionary[lang]?.[key] || fallback || key,
+  }), [lang]);
 
   return React.createElement(I18nContext.Provider, { value }, children);
 }

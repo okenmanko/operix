@@ -4,43 +4,27 @@
 :root {
   --bg: #f7f9fc;
   --card: #ffffff;
-  --soft: #f5f7fa;
-  --hover: #f5f8fc;
   --line: #e7edf5;
   --line-soft: #edf2f7;
-  --blue-line: #d9e6ff;
-  --input-line: #dfe8f3;
-  --input-bg: #ffffff;
   --text: #111827;
   --muted: #6d7b90;
   --muted-2: #8aa0ba;
   --blue: #315efb;
-  --blue-hover: #2754de;
   --blue-soft: #eef4ff;
-  --focus: #eef5ff;
-  --danger: #d92d20;
-  --danger-soft: #fff5f5;
+  --soft-card: #f8fafc;
 }
 
-html.dark {
-  --bg: #090d16;
+html.dark, body.dark, [data-theme="dark"] {
+  --bg: #070d18;
   --card: #101827;
-  --soft: #111c2d;
-  --hover: #172235;
-  --line: #22304a;
-  --line-soft: #1b2940;
-  --blue-line: #254574;
-  --input-line: #2a3954;
-  --input-bg: #0d1422;
-  --text: #eef4ff;
-  --muted: #9aa9bd;
-  --muted-2: #72839a;
-  --blue: #7ca3ff;
-  --blue-hover: #9bb8ff;
-  --blue-soft: rgba(49, 94, 251, 0.16);
-  --focus: rgba(124, 163, 255, 0.16);
-  --danger: #ff8a80;
-  --danger-soft: rgba(255, 82, 82, 0.12);
+  --line: #22314a;
+  --line-soft: #1d2a40;
+  --text: #f8fafc;
+  --muted: #9fb0c6;
+  --muted-2: #7890ad;
+  --blue: #7194ff;
+  --blue-soft: #172554;
+  --soft-card: #0d1828;
 }
 
 * { box-sizing: border-box; }
@@ -54,7 +38,6 @@ html, body {
   font-weight: 400;
 }
 
-body { transition: background 0.18s ease, color 0.18s ease; }
 button, input, select, textarea { font-family: inherit; }
 button { cursor: pointer; }
 ::selection { background: #dbe8ff; color: #1e3a8a; }
@@ -66,12 +49,6 @@ button { cursor: pointer; }
     var(--bg);
 }
 
-html.dark .premium-page {
-  background:
-    radial-gradient(circle at top right, rgba(124, 163, 255, 0.09), transparent 30%),
-    var(--bg);
-}
-
 .premium-card {
   border: 1px solid var(--line);
   background: var(--card);
@@ -79,28 +56,23 @@ html.dark .premium-page {
   box-shadow: 0 18px 46px rgba(15, 23, 42, 0.04);
 }
 
-html.dark .premium-card {
-  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.22);
-}
-
 .premium-input {
   height: 48px;
   width: 100%;
   border-radius: 18px;
-  border: 1px solid var(--input-line);
-  background: var(--input-bg);
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--text);
   padding: 0 16px;
   font-size: 14px;
   font-weight: 400;
-  color: var(--text);
   outline: none;
   transition: 0.18s ease;
 }
 
-.premium-input::placeholder { color: var(--muted-2); }
 .premium-input:focus {
   border-color: #9ec5fe;
-  box-shadow: 0 0 0 4px var(--focus);
+  box-shadow: 0 0 0 4px #eef5ff;
 }
 
 .premium-label {
@@ -110,7 +82,7 @@ html.dark .premium-card {
   font-weight: 400;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--muted-2);
+  color: #8aa0ba;
 }
 
 .premium-button {
@@ -123,71 +95,17 @@ html.dark .premium-card {
 }
 
 .premium-button-primary {
-  background: var(--blue);
+  background: #315efb;
   color: white;
   box-shadow: 0 14px 30px rgba(49, 94, 251, 0.14);
 }
 
-.premium-button-primary:hover { background: var(--blue-hover); }
-.premium-button-soft { background: var(--soft); color: var(--muted); }
-.premium-button-soft:hover { background: var(--blue-soft); color: var(--blue); }
-
-/* Safe dark-mode helper for old pages that still use white cards */
-html.dark .bg-white { background-color: var(--card) !important; }
-html.dark .bg-\[\#f6f8fc\],
-html.dark .bg-\[\#f7f9fc\] { background-color: var(--bg) !important; }
-html.dark .border-\[\#e7edf5\],
-html.dark .border-slate-200,
-html.dark .border-slate-100 { border-color: var(--line) !important; }
-html.dark .text-\[\#101828\],
-html.dark .text-\[\#111827\],
-html.dark .text-\[\#142033\],
-html.dark .text-slate-950 { color: var(--text) !important; }
-html.dark .text-\[\#6d7b90\],
-html.dark .text-\[\#66758d\],
-html.dark .text-\[\#64748b\],
-html.dark .text-slate-500 { color: var(--muted) !important; }
-html.dark .text-\[\#8aa0ba\],
-html.dark .text-slate-400 { color: var(--muted-2) !important; }
+.premium-button-primary:hover { background: #2754de; }
+.premium-button-soft { background: #f5f7fa; color: #52637a; }
+.premium-button-soft:hover { background: #eef3f8; color: #315efb; }
 
 @media print {
   aside, nav, button, .no-print { display: none !important; }
   main, section { margin: 0 !important; padding: 0 !important; }
-  body { background: white !important; color: black !important; }
-}
-
-/* PATCH 03: stronger dark-mode support for old hardcoded pages */
-html.dark .bg-\[\#f8fafc\],
-html.dark .bg-\[\#f5f7fa\],
-html.dark .bg-\[\#f5f8fc\],
-html.dark .bg-slate-50,
-html.dark .bg-slate-100 {
-  background-color: var(--soft) !important;
-}
-
-html.dark .bg-\[\#eef4ff\] {
-  background-color: var(--blue-soft) !important;
-}
-
-html.dark .border-\[\#edf2f7\],
-html.dark .border-\[\#dfe8f3\] {
-  border-color: var(--line-soft) !important;
-}
-
-html.dark .text-\[\#52637a\],
-html.dark .text-\[\#637083\],
-html.dark .text-\[\#6d7b90\],
-html.dark .text-\[\#66758d\],
-html.dark .text-\[\#64748b\],
-html.dark .text-slate-600,
-html.dark .text-slate-700 {
-  color: var(--muted) !important;
-}
-
-html.dark input,
-html.dark textarea,
-html.dark select {
-  background-color: var(--input-bg) !important;
-  border-color: var(--input-line) !important;
-  color: var(--text) !important;
+  body { background: white !important; }
 }

@@ -10,14 +10,8 @@ type Settings = {
   oneCPassword?: string;
 };
 
-type SyncDebtResult = {
-  created: number;
-  updated: number;
-  skipped: number;
-};
-
-const SETTINGS_PROVIDER = 'SETTINGS';
-const LOG_PROVIDER = 'MOYSKLAD';
+const settingsStore = new Map<string, Settings>();
+const historyStore = new Map<string, any[]>();
 
 @Injectable()
 export class IntegrationsService {
@@ -28,7 +22,6 @@ export class IntegrationsService {
 
   async getSettings(companyId: string) {
     const settings = await this.getRawSettings(companyId);
-
     return {
       ...settings,
       moyskladToken: settings.moyskladToken ? this.mask(settings.moyskladToken) : '',
@@ -42,7 +35,6 @@ export class IntegrationsService {
 
   async saveSettings(companyId: string, body: any) {
     const current = await this.getRawSettings(companyId);
-
     const next: Settings = {
       moyskladApiUrl: body.moyskladApiUrl || current.moyskladApiUrl || 'https://api.moysklad.ru/api/remap/1.2',
       moyskladToken: this.unmask(body.moyskladToken, current.moyskladToken),
@@ -51,33 +43,17 @@ export class IntegrationsService {
       oneCPassword: this.unmaskPassword(body.oneCPassword, current.oneCPassword),
     };
 
-    await this.setSetting(companyId, 'moyskladApiUrl', next.moyskladApiUrl);
-    await this.setSetting(companyId, 'moyskladToken', next.moyskladToken || '');
-    await this.setSetting(companyId, 'oneCBaseUrl', next.oneCBaseUrl || '');
-    await this.setSetting(companyId, 'oneCLogin', next.oneCLogin || '');
-    await this.setSetting(companyId, 'oneCPassword', next.oneCPassword || '');
-
+    await this.saveRawSettings(companyId, next);
     await this.pushHistory(companyId, 'SYSTEM', 'SETTINGS', 'SUCCESS', 'Sozlamalar saqlandi');
-
     return { ok: true };
   }
 
   async history(companyId: string) {
-    const logs = await this.prisma.integrationLog.findMany({
-      where: { companyId },
-      orderBy: { createdAt: 'desc' },
-      take: 50,
-    });
-
-    return logs.map((log) => ({
-      id: log.id,
-      createdAt: log.createdAt,
-      source: log.provider,
-      type: log.action,
-      status: log.status,
-      message: log.message || '',
-      ...(typeof log.payload === 'object' && log.payload ? (log.payload as any) : {}),
-    }));
+    const prismaAny = this.prisma as any;
+    if (prismaAny.integrationLog?.findMany) {
+      return prismaAny.integrationLog.findMany({ where: { companyId }, orderBy: { createdAt: 'desc' }, take: 50 });
+    }
+    return historyStore.get(companyId) || [];
   }
 
   async testMoysklad(companyId: string) {
@@ -85,10 +61,8 @@ export class IntegrationsService {
       const settings = await this.getRawSettings(companyId);
       const data = await this.moyskladFetch(settings, '/entity/organization?limit=1');
       const orgName = data?.rows?.[0]?.name || 'MoySklad';
-
       const message = `MoySklad ulandi: ${orgName}`;
       await this.pushHistory(companyId, 'MOYSKLAD', 'TEST', 'SUCCESS', message);
-
       return { ok: true, message };
     } catch (error: any) {
       return this.fail(companyId, 'MOYSKLAD', 'TEST', error?.message || 'MoySklad test xatosi');
@@ -98,71 +72,148 @@ export class IntegrationsService {
   async syncMoyskladClients(companyId: string) {
     try {
       const settings = await this.getRawSettings(companyId);
-      const data = await this.moyskladFetch(settings, '/entity/counterparty?limit=1000');
-
-      const rows = Array.isArray(data?.rows) ? data.rows : [];
+      const data = await this.moyskladFetchAll(settings, '/entity/counterparty', 1000);
+      const rows = Array.isArray(data) ? data : [];
       let created = 0;
       let updated = 0;
       let skipped = 0;
-      const debtResult: SyncDebtResult = { created: 0, updated: 0, skipped: 0 };
 
       for (const item of rows) {
         const name = String(item?.name || '').trim();
         const phone = this.pickPhone(item);
-
+        const externalId = this.extractExternalId(item);
         if (!name) {
           skipped++;
           continue;
         }
 
-        const existing = phone
-          ? await this.prisma.client.findFirst({ where: { companyId, phone } })
-          : await this.prisma.client.findFirst({ where: { companyId, fullName: name } });
-
-        let client: any;
+        const existing = await this.findClient(companyId, { name, phone, externalId });
+        const dataClient: any = {
+          fullName: name,
+          phone: phone || existing?.phone || this.noPhone(companyId, externalId || name),
+          normalizedPhone: this.normalizePhone(phone || existing?.phone || ''),
+          address: item?.actualAddress || item?.legalAddress || existing?.address || null,
+          notes: this.mergeNote(existing?.notes, externalId ? `MoySklad ID: ${externalId}` : ''),
+        };
 
         if (existing) {
-          client = await this.prisma.client.update({
-            where: { id: existing.id },
-            data: {
-              fullName: name,
-              phone: phone || existing.phone,
-              address: item?.actualAddress || item?.legalAddress || existing.address,
-            },
-          });
+          await this.prisma.client.update({ where: { id: existing.id }, data: dataClient });
           updated++;
         } else {
+          await this.prisma.client.create({ data: { companyId, ...dataClient, guarantorName: null, guarantorPhone: null } });
+          created++;
+        }
+      }
+
+      const message = `Mijozlar sync: ${created} yangi, ${updated} yangilandi, ${skipped} skip`;
+      await this.pushHistory(companyId, 'MOYSKLAD', 'CLIENTS', 'SUCCESS', message, { created, updated, skipped });
+      return { ok: true, message, created, updated, skipped };
+    } catch (error: any) {
+      return this.fail(companyId, 'MOYSKLAD', 'CLIENTS', error?.message || 'Mijozlar sync xatosi');
+    }
+  }
+
+  async syncMoyskladDebts(companyId: string) {
+    try {
+      const settings = await this.getRawSettings(companyId);
+      const entityRows = await this.moyskladFetchAll(settings, '/entity/counterparty', 1000);
+      let reportRows: any[] = [];
+      try {
+        reportRows = await this.moyskladFetchAll(settings, '/report/counterparty', 1000);
+      } catch {
+        reportRows = [];
+      }
+
+      const reportById = new Map<string, any>();
+      for (const row of reportRows) {
+        const id = this.extractExternalId(row?.counterparty || row?.agent || row);
+        if (id) reportById.set(id, row);
+      }
+
+      let created = 0;
+      let updatedClients = 0;
+      let skipped = 0;
+      let totalUZS = 0;
+      let totalUSD = 0;
+
+      await this.prisma.debt.deleteMany({
+        where: { client: { companyId }, comment: { contains: 'MOYSKLAD_BALANCE' } },
+      });
+
+      for (const item of entityRows) {
+        const name = String(item?.name || '').trim();
+        const externalId = this.extractExternalId(item);
+        if (!name) {
+          skipped++;
+          continue;
+        }
+
+        const report = externalId ? reportById.get(externalId) : null;
+        const balances = this.extractBalances(item, report);
+        if (!balances.length) {
+          skipped++;
+          continue;
+        }
+
+        const phone = this.pickPhone(item);
+        let client = await this.findClient(companyId, { name, phone, externalId });
+        if (!client) {
           client = await this.prisma.client.create({
             data: {
               companyId,
               fullName: name,
-              phone: phone || this.noPhone(companyId, name),
+              phone: phone || this.noPhone(companyId, externalId || name),
+              normalizedPhone: this.normalizePhone(phone),
               address: item?.actualAddress || item?.legalAddress || null,
-              guarantorName: null,
-              guarantorPhone: null,
+              notes: externalId ? `MoySklad ID: ${externalId}` : null,
+            },
+          });
+        } else {
+          client = await this.prisma.client.update({
+            where: { id: client.id },
+            data: {
+              fullName: name,
+              phone: phone || client.phone,
+              normalizedPhone: this.normalizePhone(phone || client.phone),
+              address: item?.actualAddress || item?.legalAddress || client.address,
+              notes: this.mergeNote(client.notes, externalId ? `MoySklad ID: ${externalId}` : ''),
+            },
+          });
+          updatedClients++;
+        }
+
+        for (const balance of balances) {
+          const amount = Math.abs(this.normalizeMoyskladMoney(balance.amount));
+          if (amount <= 0) continue;
+
+          const currency = this.normalizeCurrency(balance.currency);
+          await this.prisma.debt.create({
+            data: {
+              clientId: client.id,
+              amount,
+              currency,
+              status: 'ACTIVE',
+              comment: `MOYSKLAD_BALANCE:${externalId || name}:${currency}`,
             },
           });
           created++;
+          if (currency === 'USD') totalUSD += amount;
+          else totalUZS += amount;
         }
-
-        await this.upsertClientDebtFromMoysklad(client.id, item, debtResult);
       }
 
-      await this.trySyncCounterpartyReportDebts(companyId, settings, debtResult);
-
-      const message = `Mijozlar sync: ${created} yangi, ${updated} yangilandi, ${skipped} skip, qarz: ${debtResult.created} yangi/${debtResult.updated} yangilandi`;
-      await this.pushHistory(companyId, 'MOYSKLAD', 'CLIENTS', 'SUCCESS', message, { created, updated, skipped, debtResult });
-
-      return { ok: true, message, created, updated, skipped, debtResult };
+      const message = `Qarzlar sync: ${created} qarz. UZS: ${Math.round(totalUZS).toLocaleString('ru-RU')}, USD: ${totalUSD.toLocaleString('ru-RU')}`;
+      await this.pushHistory(companyId, 'MOYSKLAD', 'DEBTS', 'SUCCESS', message, { created, updatedClients, skipped, totalUZS, totalUSD });
+      return { ok: true, message, created, updatedClients, skipped, totalUZS, totalUSD };
     } catch (error: any) {
-      return this.fail(companyId, 'MOYSKLAD', 'CLIENTS', error?.message || 'Mijozlar sync xatosi');
+      return this.fail(companyId, 'MOYSKLAD', 'DEBTS', error?.message || 'Qarzlar sync xatosi');
     }
   }
 
   async syncMoyskladProducts(companyId: string) {
     try {
       const settings = await this.getRawSettings(companyId);
-      const rows = await this.loadAllMoyskladRows(settings, '/entity/product');
+      const rows = await this.moyskladFetchAll(settings, '/entity/product', 1000);
       let created = 0;
       let updated = 0;
       let skipped = 0;
@@ -174,19 +225,18 @@ export class IntegrationsService {
         else skipped++;
       }
 
-      const message = `Productlar sync: ${created} yangi, ${updated} yangilandi, ${skipped} skip`;
+      const message = `Tovarlar sync: ${created} yangi, ${updated} yangilandi, ${skipped} skip`;
       await this.pushHistory(companyId, 'MOYSKLAD', 'PRODUCTS', 'SUCCESS', message, { created, updated, skipped });
-
       return { ok: true, message, created, updated, skipped };
     } catch (error: any) {
-      return this.fail(companyId, 'MOYSKLAD', 'PRODUCTS', error?.message || 'Productlar sync xatosi');
+      return this.fail(companyId, 'MOYSKLAD', 'PRODUCTS', error?.message || 'Tovarlar sync xatosi');
     }
   }
 
   async syncMoyskladWarehouses(companyId: string) {
     try {
       const settings = await this.getRawSettings(companyId);
-      const rows = await this.loadAllMoyskladRows(settings, '/entity/store');
+      const rows = await this.moyskladFetchAll(settings, '/entity/store', 1000);
       let created = 0;
       let updated = 0;
       let skipped = 0;
@@ -200,7 +250,6 @@ export class IntegrationsService {
 
       const message = `Omborlar sync: ${created} yangi, ${updated} yangilandi, ${skipped} skip`;
       await this.pushHistory(companyId, 'MOYSKLAD', 'WAREHOUSES', 'SUCCESS', message, { created, updated, skipped });
-
       return { ok: true, message, created, updated, skipped };
     } catch (error: any) {
       return this.fail(companyId, 'MOYSKLAD', 'WAREHOUSES', error?.message || 'Omborlar sync xatosi');
@@ -210,7 +259,6 @@ export class IntegrationsService {
   async syncMoyskladStock(companyId: string) {
     try {
       const settings = await this.getRawSettings(companyId);
-
       let data: any;
       try {
         data = await this.moyskladFetch(settings, '/report/stock/all?limit=1000&stockByStore=true');
@@ -220,10 +268,8 @@ export class IntegrationsService {
 
       const rows = Array.isArray(data?.rows) ? data.rows : [];
       const result = await this.inventoryService.replaceStockFromMoysklad(companyId, rows);
-
       const message = `Qoldiq sync: ${result.rows} qator, ${result.totalQuantity} dona`;
       await this.pushHistory(companyId, 'MOYSKLAD', 'STOCK', 'SUCCESS', message, result);
-
       return { ok: true, message, ...result };
     } catch (error: any) {
       return this.fail(companyId, 'MOYSKLAD', 'STOCK', error?.message || 'Qoldiq sync xatosi');
@@ -232,18 +278,11 @@ export class IntegrationsService {
 
   async syncMoyskladAll(companyId: string) {
     const clients = await this.syncMoyskladClients(companyId);
+    const debts = await this.syncMoyskladDebts(companyId);
     const warehouses = await this.syncMoyskladWarehouses(companyId);
     const products = await this.syncMoyskladProducts(companyId);
     const stock = await this.syncMoyskladStock(companyId);
-
-    return {
-      ok: Boolean(clients.ok && products.ok && warehouses.ok && stock.ok),
-      message: 'Sync all tugadi',
-      clients,
-      warehouses,
-      products,
-      stock,
-    };
+    return { ok: Boolean(clients.ok && debts.ok && products.ok && warehouses.ok && stock.ok), message: 'Sync all tugadi', clients, debts, warehouses, products, stock };
   }
 
   async testOneC(companyId: string) {
@@ -258,14 +297,8 @@ export class IntegrationsService {
     }
   }
 
-  async syncOneCClients(companyId: string) {
-    return this.fail(companyId, 'ONE_C', 'CLIENTS', '1C endpoint strukturasi kerak.');
-  }
-
-  async syncOneCProducts(companyId: string) {
-    return this.fail(companyId, 'ONE_C', 'PRODUCTS', '1C endpoint strukturasi kerak.');
-  }
-
+  async syncOneCClients(companyId: string) { return this.fail(companyId, 'ONE_C', 'CLIENTS', '1C endpoint strukturasi kerak.'); }
+  async syncOneCProducts(companyId: string) { return this.fail(companyId, 'ONE_C', 'PRODUCTS', '1C endpoint strukturasi kerak.'); }
   async syncOneCAll(companyId: string) {
     const clients = await this.syncOneCClients(companyId);
     const products = await this.syncOneCProducts(companyId);
@@ -273,221 +306,179 @@ export class IntegrationsService {
   }
 
   private async getRawSettings(companyId: string): Promise<Settings> {
-    const rows = await this.prisma.integrationSetting.findMany({
-      where: { companyId, provider: SETTINGS_PROVIDER, isActive: true },
-    });
+    const cached = settingsStore.get(companyId);
+    if (cached) return cached;
 
-    const map = new Map(rows.map((row) => [row.key, row.value || '']));
+    const defaults: Settings = { moyskladApiUrl: 'https://api.moysklad.ru/api/remap/1.2', moyskladToken: '', oneCBaseUrl: '', oneCLogin: '', oneCPassword: '' };
+    const prismaAny = this.prisma as any;
+    if (!prismaAny.integrationSetting?.findMany) return defaults;
 
-    return {
-      moyskladApiUrl: map.get('moyskladApiUrl') || 'https://api.moysklad.ru/api/remap/1.2',
-      moyskladToken: map.get('moyskladToken') || '',
-      oneCBaseUrl: map.get('oneCBaseUrl') || '',
-      oneCLogin: map.get('oneCLogin') || '',
-      oneCPassword: map.get('oneCPassword') || '',
-    };
+    const rows = await prismaAny.integrationSetting.findMany({ where: { companyId, provider: 'OPERIX' } });
+    const settings = { ...defaults } as any;
+    for (const row of rows) settings[row.key] = row.value || '';
+    settingsStore.set(companyId, settings);
+    return settings;
   }
 
-  private async setSetting(companyId: string, key: string, value: string) {
-    const existing = await this.prisma.integrationSetting.findFirst({
-      where: { companyId, provider: SETTINGS_PROVIDER, key },
-    });
+  private async saveRawSettings(companyId: string, settings: Settings) {
+    settingsStore.set(companyId, settings);
+    const prismaAny = this.prisma as any;
+    if (!prismaAny.integrationSetting?.upsert) return;
 
-    if (existing) {
-      return this.prisma.integrationSetting.update({
-        where: { id: existing.id },
-        data: { value, isActive: true },
-      });
+    for (const [key, value] of Object.entries(settings)) {
+      const existing = await prismaAny.integrationSetting.findFirst({ where: { companyId, provider: 'OPERIX', key } });
+      if (existing) await prismaAny.integrationSetting.update({ where: { id: existing.id }, data: { value: String(value || '') } });
+      else await prismaAny.integrationSetting.create({ data: { companyId, provider: 'OPERIX', key, value: String(value || '') } });
     }
-
-    return this.prisma.integrationSetting.create({
-      data: { companyId, provider: SETTINGS_PROVIDER, key, value, isActive: true },
-    });
   }
 
-  private async loadAllMoyskladRows(settings: Settings, path: string) {
-    const limit = 1000;
-    let offset = 0;
+  private async moyskladFetchAll(settings: Settings, path: string, limit = 1000) {
     const rows: any[] = [];
-
-    while (true) {
-      const separator = path.includes('?') ? '&' : '?';
-      const data = await this.moyskladFetch(settings, `${path}${separator}limit=${limit}&offset=${offset}`);
-      const chunk = Array.isArray(data?.rows) ? data.rows : [];
-      rows.push(...chunk);
-      if (chunk.length < limit) break;
+    let offset = 0;
+    for (let i = 0; i < 20; i++) {
+      const sep = path.includes('?') ? '&' : '?';
+      const data = await this.moyskladFetch(settings, `${path}${sep}limit=${limit}&offset=${offset}`);
+      const part = Array.isArray(data?.rows) ? data.rows : [];
+      rows.push(...part);
+      if (part.length < limit) break;
       offset += limit;
-      if (offset > 20000) break;
     }
-
     return rows;
   }
 
   private async moyskladFetch(settings: Settings, path: string) {
     if (!settings.moyskladToken) throw new Error('MoySklad API token kiritilmagan');
-
     const base = (settings.moyskladApiUrl || 'https://api.moysklad.ru/api/remap/1.2').replace(/\/$/, '');
     const token = settings.moyskladToken.trim();
-
     const response = await fetch(`${base}${path}`, {
-      headers: {
-        Accept: 'application/json;charset=utf-8',
-        'Content-Type': 'application/json;charset=utf-8',
-        Authorization: token.toLowerCase().startsWith('bearer ') ? token : `Bearer ${token}`,
-      },
+      headers: { Accept: 'application/json;charset=utf-8', 'Content-Type': 'application/json;charset=utf-8', Authorization: token.toLowerCase().startsWith('bearer ') ? token : `Bearer ${token}` },
     });
-
     const text = await response.text();
     let data: any = null;
-
-    if (text) {
-      try { data = JSON.parse(text); } catch { data = text; }
-    }
-
+    if (text) { try { data = JSON.parse(text); } catch { data = text; } }
     if (!response.ok) {
-      const msg = typeof data === 'object'
-        ? data?.errors?.[0]?.error || data?.message || `MoySklad HTTP ${response.status}`
-        : String(data || `MoySklad HTTP ${response.status}`);
+      const msg = typeof data === 'object' ? data?.errors?.[0]?.error || data?.message || `MoySklad HTTP ${response.status}` : data || `MoySklad HTTP ${response.status}`;
       throw new Error(msg);
     }
-
     return data;
   }
 
   private async oneCFetch(settings: Settings, path: string) {
-    if (!settings.oneCBaseUrl || !settings.oneCLogin) throw new Error('1C URL yoki login kiritilmagan');
-
+    if (!settings.oneCBaseUrl) throw new Error('1C URL kiritilmagan');
     const base = settings.oneCBaseUrl.replace(/\/$/, '');
-    const pair = Buffer.from(`${settings.oneCLogin}:${settings.oneCPassword || ''}`).toString('base64');
-
-    const response = await fetch(`${base}${path}`, {
-      headers: { Accept: 'application/json', Authorization: `Basic ${pair}` },
-    });
-
+    const response = await fetch(`${base}${path}`, { headers: { Authorization: settings.oneCLogin || settings.oneCPassword ? `Basic ${Buffer.from(`${settings.oneCLogin || ''}:${settings.oneCPassword || ''}`).toString('base64')}` : '' } });
     if (!response.ok) throw new Error(`1C HTTP ${response.status}`);
-    return response.json();
+    return response.json().catch(() => ({}));
   }
 
-  private async upsertClientDebtFromMoysklad(clientId: string, item: any, result: SyncDebtResult) {
-    const amount = this.pickDebtAmount(item);
-    if (!amount || amount <= 0) {
-      result.skipped++;
-      return;
+  private async findClient(companyId: string, params: { name: string; phone?: string; externalId?: string | null }) {
+    const normalizedPhone = this.normalizePhone(params.phone || '');
+    if (params.externalId) {
+      const byNote = await this.prisma.client.findFirst({ where: { companyId, notes: { contains: `MoySklad ID: ${params.externalId}` } } });
+      if (byNote) return byNote;
     }
-
-    const currency = this.pickDebtCurrency(item);
-    const comment = `MoySklad qarz sync${item?.id ? ` ID: ${item.id}` : ''}`;
-
-    const existing = await this.prisma.debt.findFirst({
-      where: { clientId, currency, comment: { contains: 'MoySklad qarz sync' } },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    if (existing) {
-      await this.prisma.debt.update({
-        where: { id: existing.id },
-        data: { amount, status: amount > 0 ? 'ACTIVE' : 'CLOSED', comment },
-      });
-      result.updated++;
-      return;
+    if (normalizedPhone) {
+      const byPhone = await this.prisma.client.findFirst({ where: { companyId, normalizedPhone } });
+      if (byPhone) return byPhone;
     }
-
-    await this.prisma.debt.create({
-      data: { clientId, amount, currency, status: 'ACTIVE', comment },
-    });
-    result.created++;
+    return this.prisma.client.findFirst({ where: { companyId, fullName: params.name } });
   }
 
-  private async trySyncCounterpartyReportDebts(companyId: string, settings: Settings, result: SyncDebtResult) {
-    try {
-      const data = await this.moyskladFetch(settings, '/report/counterparty?limit=1000');
-      const rows = Array.isArray(data?.rows) ? data.rows : [];
+  private extractBalances(item: any, report?: any) {
+    const candidates = [report, item].filter(Boolean);
+    const result: { amount: number; currency: string }[] = [];
+    for (const obj of candidates) {
+      const currency = this.normalizeCurrency(obj?.currency?.name || obj?.currency?.code || obj?.currency || obj?.accountCurrency || 'UZS');
+      const raw = obj?.balance ?? obj?.accountBalance ?? obj?.debt ?? obj?.sum ?? obj?.saldo ?? obj?.remainder;
+      const n = Number(raw || 0);
+      if (Number.isFinite(n) && n !== 0) result.push({ amount: n, currency });
 
-      for (const row of rows) {
-        const name = String(row?.counterparty?.name || row?.name || '').trim();
-        if (!name) continue;
-
-        const client = await this.prisma.client.findFirst({ where: { companyId, fullName: name } });
-        if (!client) continue;
-
-        await this.upsertClientDebtFromMoysklad(client.id, row, result);
+      const attrs = Array.isArray(obj?.attributes) ? obj.attributes : [];
+      for (const attr of attrs) {
+        const name = String(attr?.name || '').toLowerCase();
+        if (!name.includes('qarz') && !name.includes('долг') && !name.includes('debt') && !name.includes('balance')) continue;
+        const value = Number(attr?.value || 0);
+        if (!Number.isFinite(value) || value === 0) continue;
+        result.push({ amount: value, currency: this.normalizeCurrency(name.includes('usd') || name.includes('$') ? 'USD' : currency) });
       }
-    } catch {
-      // MoySklad аккаунтларида bu report endpoint har xil ishlashi mumkin. Asosiy sync to‘xtamaydi.
     }
+
+    const merged = new Map<string, number>();
+    for (const row of result) merged.set(row.currency, (merged.get(row.currency) || 0) + row.amount);
+    return [...merged.entries()].map(([currency, amount]) => ({ currency, amount }));
   }
 
-  private pickDebtAmount(item: any) {
-    const raw =
-      item?.balance ??
-      item?.debt ??
-      item?.debtAmount ??
-      item?.receivable ??
-      item?.counterpartyBalance ??
-      item?.sum ??
-      item?.amount ??
-      0;
-
-    const n = Number(raw || 0);
+  private normalizeMoyskladMoney(value: any) {
+    const n = Number(value || 0);
     if (!Number.isFinite(n)) return 0;
-    const normalized = Math.abs(n) > 1000000 ? n / 100 : n;
-    return normalized > 0 ? normalized : 0;
+    return Math.abs(n) >= 100000 ? n / 100 : n;
   }
 
-  private pickDebtCurrency(item: any) {
-    const raw = String(
-      item?.currency?.isoCode ||
-      item?.currency?.name ||
-      item?.rate?.currency?.isoCode ||
-      item?.currency ||
-      'UZS',
-    ).toUpperCase();
-
-    return raw.includes('USD') || raw.includes('ДОЛ') || raw.includes('$') ? 'USD' : 'UZS';
+  private normalizeCurrency(value: any) {
+    const raw = String(value || 'UZS').trim().toUpperCase();
+    return raw.includes('USD') || raw.includes('$') || raw.includes('ДОЛ') ? 'USD' : 'UZS';
   }
 
   private pickPhone(item: any) {
-    return String(item?.phone || item?.fax || item?.email || '').trim();
+    const raw = item?.phone || item?.phones?.[0]?.phone || item?.legalAddressFull?.phone || item?.actualAddressFull?.phone || '';
+    return this.normalizePhone(raw) || '';
   }
 
-  private mask(value?: string) {
+  private normalizePhone(value: any) {
+    const digits = String(value || '').replace(/\D/g, '');
+    if (!digits) return '';
+    if (digits.length === 9) return `998${digits}`;
+    return digits;
+  }
+
+  private noPhone(companyId: string, key: string) {
+    return `no-phone-${companyId.slice(0, 6)}-${String(key).replace(/[^a-zA-Z0-9]/g, '').slice(0, 18) || Date.now()}`;
+  }
+
+  private extractExternalId(item: any) {
+    const href = String(item?.meta?.href || item?.href || '').trim();
+    const fromHref = href ? href.split('/').pop()?.split('?')[0] : '';
+    return String(item?.id || fromHref || '').trim() || null;
+  }
+
+  private mergeNote(oldNote?: string | null, next?: string) {
+    const clean = String(next || '').trim();
+    if (!clean) return oldNote || null;
+    if (String(oldNote || '').includes(clean)) return oldNote || null;
+    return [oldNote, clean].filter(Boolean).join('\n');
+  }
+
+  private mask(value: string) {
     if (!value) return '';
     if (value.length <= 8) return '********';
     return `${value.slice(0, 4)}********${value.slice(-4)}`;
   }
 
-  private unmask(value: any, previous?: string) {
-    if (value === undefined || value === null) return previous || '';
-    if (String(value).includes('********')) return previous || '';
+  private unmask(value: string | undefined, oldValue?: string) {
+    if (value === undefined || value === null || value === '') return oldValue || '';
+    if (String(value).includes('********')) return oldValue || '';
+    return String(value).trim();
+  }
+
+  private unmaskPassword(value: string | undefined, oldValue?: string) {
+    if (value === undefined || value === null || value === '') return oldValue || '';
+    if (String(value) === '********') return oldValue || '';
     return String(value);
   }
 
-  private unmaskPassword(value: any, previous?: string) {
-    if (value === undefined || value === null) return previous || '';
-    if (value === '********') return previous || '';
-    return String(value);
+  private async pushHistory(companyId: string, provider: string, action: string, status: string, message: string, payload?: any) {
+    const item = { id: `${Date.now()}_${Math.random().toString(16).slice(2)}`, provider, action, status, message, payload, createdAt: new Date().toISOString() };
+    const current = historyStore.get(companyId) || [];
+    historyStore.set(companyId, [item, ...current].slice(0, 50));
+
+    const prismaAny = this.prisma as any;
+    if (prismaAny.integrationLog?.create) {
+      await prismaAny.integrationLog.create({ data: { companyId, provider, action, status, message, payload: payload || {} } }).catch(() => null);
+    }
   }
 
-  private async fail(companyId: string, source: string, type: string, message: string) {
-    await this.pushHistory(companyId, source, type, 'FAILED', message);
-    return { ok: false, source, type, created: 0, updated: 0, skipped: 0, message };
-  }
-
-  private async pushHistory(companyId: string, source: string, type: string, status: string, message: string, extra: any = {}) {
-    return this.prisma.integrationLog.create({
-      data: {
-        companyId,
-        provider: source || LOG_PROVIDER,
-        action: type,
-        status,
-        message,
-        payload: extra || {},
-      },
-    });
-  }
-
-  private noPhone(companyId: string, seed: string) {
-    const safe = String(seed || 'client').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').slice(0, 40);
-    return `NO_PHONE_${companyId}_${safe}_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+  private async fail(companyId: string, provider: string, action: string, message: string) {
+    await this.pushHistory(companyId, provider, action, 'ERROR', message);
+    return { ok: false, message };
   }
 }

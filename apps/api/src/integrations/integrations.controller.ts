@@ -34,6 +34,12 @@ export class IntegrationsController {
     return this.integrationsService.syncMoyskladClients(user.companyId);
   }
 
+
+  @Post('moysklad/sync-debts')
+  syncMoyskladDebts(@CurrentUser() user: AuthUser) {
+    return this.integrationsService.syncMoyskladDebts(user.companyId);
+  }
+
   @Post('moysklad/sync-products')
   syncMoyskladProducts(@CurrentUser() user: AuthUser) {
     return this.integrationsService.syncMoyskladProducts(user.companyId);
