@@ -13,7 +13,6 @@ import { SuperAdminModule } from './super-admin/super-admin.module';
 
 @Module({
   imports: [
-    SuperAdminModule,
     PrismaModule,
     AuthModule,
     ClientsModule,
@@ -24,6 +23,7 @@ import { SuperAdminModule } from './super-admin/super-admin.module';
     TelegramModule,
     InventoryModule,
     IntegrationsModule,
+    SuperAdminModule,
   ],
 })
 export class AppModule {}
