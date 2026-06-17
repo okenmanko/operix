@@ -1,4 +1,5 @@
 import { NestFactory } from '@nestjs/core';
+import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
@@ -6,14 +7,30 @@ async function bootstrap() {
 
   app.enableCors({
     origin: [
-      "http://localhost:3000",
-      "https://qanot-ashy.vercel.app",
+      'https://qanot-ashy.vercel.app',
+      'http://localhost:3000',
     ],
     credentials: true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
   });
 
-  await app.listen(4000);
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      transform: true,
+      forbidNonWhitelisted: true,
+    }),
+  );
+
+  const port = Number(process.env.PORT) || 4000;
+
+  await app.listen(port, '0.0.0.0');
+
+  console.log('==========================================');
+  console.log('🚀 Operix API ishga tushdi');
+  console.log(`🌍 Port: ${port}`);
+  console.log('==========================================');
 }
+
 bootstrap();
