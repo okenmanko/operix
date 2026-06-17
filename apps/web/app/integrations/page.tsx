@@ -20,8 +20,10 @@ type Settings = {
 type HistoryItem = {
   id: string;
   createdAt: string;
-  source: string;
-  type: string;
+  source?: string;
+  type?: string;
+  provider?: string;
+  action?: string;
   status: string;
   message: string;
 };
@@ -78,23 +80,25 @@ export default function IntegrationsPage() {
   }
 
   async function run(path: string, label: string) {
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => controller.abort(), 25_000);
-
     try {
       setLoading(label);
       setError("");
       setMessage("");
 
-      const result = await apiJson<any>(path, { method: "POST", signal: controller.signal });
+      const result = await apiJson<any>(path, { method: "POST" });
+      setMessage(result?.message || "Sync boshlandi. History avtomatik yangilanadi.");
+      await load();
 
-      setMessage(result?.message || "Boshlandi. Natijani Historydan ko‘rasiz.");
-      window.setTimeout(load, 1500);
+      let count = 0;
+      const interval = window.setInterval(async () => {
+        count += 1;
+        await load();
+        if (count >= 40) window.clearInterval(interval);
+      }, 3000);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Xatolik");
-      window.setTimeout(load, 1500);
+      window.setTimeout(load, 1200);
     } finally {
-      window.clearTimeout(timer);
       setLoading("");
     }
   }
@@ -193,8 +197,8 @@ export default function IntegrationsPage() {
                 {history.slice(0, 8).map((item) => (
                   <tr key={item.id} className="border-t border-[#edf2f7]">
                     <td className="p-3 text-[#64748b]">{new Date(item.createdAt).toLocaleString("ru-RU")}</td>
-                    <td className="p-3 text-[#111827]">{item.source}</td>
-                    <td className="p-3 text-[#64748b]">{item.type}</td>
+                    <td className="p-3 text-[#111827]">{item.source || item.provider || "-"}</td>
+                    <td className="p-3 text-[#64748b]">{item.type || item.action || "-"}</td>
                     <td className="p-3"><Badge status={item.status} /></td>
                     <td className="p-3 text-[#64748b]">{item.message}</td>
                   </tr>

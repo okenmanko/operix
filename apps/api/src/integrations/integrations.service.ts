@@ -12,6 +12,7 @@ type Settings = {
 
 const settingsStore = new Map<string, Settings>();
 const historyStore = new Map<string, any[]>();
+const syncRunStore = new Map<string, { running: boolean; action: string; startedAt: string }>();
 
 @Injectable()
 export class IntegrationsService {
@@ -117,65 +118,39 @@ export class IntegrationsService {
     try {
       const settings = await this.getRawSettings(companyId);
 
-      const [reportRows, counterpartyRows] = await Promise.all([
-        this.loadMoyskladCounterpartyReport(settings).catch(() => []),
-        this.moyskladFetchAll(settings, '/entity/counterparty?expand=attributes', 1000, 80).catch(() => []),
-      ]);
-
-      if (!reportRows.length && !counterpartyRows.length) {
-        throw new Error('MoySklad counterparty/report bo‘sh qaytdi. Token huquqlarini tekshiring.');
-      }
-
-      const entityMap = new Map<string, any>();
-      for (const item of counterpartyRows) {
-        const id = this.extractExternalId(item);
-        const name = String(item?.name || '').trim().toLowerCase();
-        if (id) entityMap.set(`id:${id}`, item);
-        if (name) entityMap.set(`name:${name}`, item);
-      }
+      // ENG MUHIMI: qarzni counterparty entitydan emas, aynan MoySklad qarzdorlik reportidan olamiz.
+      // Entityda ko'p kontragentlarda balance kelmaydi. Shuning uchun 15 ta chiqib qolgan.
+      const reportRows = await this.withTimeout(
+        this.loadMoyskladCounterpartyReport(settings),
+        90_000,
+        'MoySklad qarzdorlik hisoboti 90 sekunddan oshib ketdi. Keyinroq yana Sync debts bosing yoki MoySklad token/huquqlarini tekshiring.',
+      );
 
       let created = 0;
       let updatedClients = 0;
       let skipped = 0;
       let totalUZS = 0;
       let totalUSD = 0;
-      const processed = new Set<string>();
 
       await this.prisma.debt.deleteMany({
         where: {
           client: { companyId },
-          OR: [
-            { comment: { contains: 'MOYSKLAD_BALANCE' } },
-            { comment: { contains: 'MOYSKLAD_REPORT' } },
-            { comment: { contains: 'MOYSKLAD_ENTITY' } },
-          ],
+          comment: { contains: 'MOYSKLAD_BALANCE' },
         },
       });
 
-      const sourceRows = reportRows.length ? reportRows : counterpartyRows;
+      for (const row of reportRows) {
+        const agent = row?.counterparty || row?.agent || row?.customer || row?.organization || row;
+        const name = String(agent?.name || row?.name || row?.counterpartyName || '').trim();
+        const externalId = this.extractExternalId(agent || row);
 
-      for (const row of sourceRows) {
-        const agentFromReport = row?.counterparty || row?.agent || row?.customer || row?.organization || row;
-        const reportExternalId = this.extractExternalId(agentFromReport || row);
-        const reportName = String(agentFromReport?.name || row?.name || row?.counterpartyName || '').trim();
-        const entity =
-          (reportExternalId ? entityMap.get(`id:${reportExternalId}`) : null) ||
-          (reportName ? entityMap.get(`name:${reportName.toLowerCase()}`) : null) ||
-          (reportRows.length ? null : row);
-
-        const externalId = this.extractExternalId(entity || agentFromReport || row) || reportExternalId;
-        const name = String(entity?.name || reportName || '').trim();
         if (!name) {
           skipped++;
           continue;
         }
 
-        const key = externalId || name.toLowerCase();
-        if (processed.has(key)) continue;
-        processed.add(key);
-
-        const phone = this.pickPhone(entity || agentFromReport || row);
-        const balances = this.extractReportBalances(row, entity);
+        const phone = this.pickPhone(agent || row);
+        const balances = this.extractReportBalances(row);
 
         if (!balances.length) {
           skipped++;
@@ -183,7 +158,6 @@ export class IntegrationsService {
         }
 
         let client = await this.findClient(companyId, { name, phone, externalId });
-        const address = entity?.actualAddress || entity?.legalAddress || agentFromReport?.actualAddress || agentFromReport?.legalAddress || row?.actualAddress || row?.legalAddress || null;
 
         if (!client) {
           client = await this.prisma.client.create({
@@ -192,7 +166,7 @@ export class IntegrationsService {
               fullName: name,
               phone: phone || this.noPhone(companyId, externalId || name),
               normalizedPhone: this.normalizePhone(phone),
-              address,
+              address: agent?.actualAddress || agent?.legalAddress || row?.actualAddress || row?.legalAddress || null,
               notes: externalId ? `MoySklad ID: ${externalId}` : null,
               guarantorName: null,
               guarantorPhone: null,
@@ -205,7 +179,7 @@ export class IntegrationsService {
               fullName: name,
               phone: phone || client.phone,
               normalizedPhone: this.normalizePhone(phone || client.phone),
-              address: address || client.address,
+              address: agent?.actualAddress || agent?.legalAddress || row?.actualAddress || row?.legalAddress || client.address,
               notes: this.mergeNote(client.notes, externalId ? `MoySklad ID: ${externalId}` : ''),
             },
           });
@@ -217,13 +191,14 @@ export class IntegrationsService {
           if (!Number.isFinite(amount) || amount <= 0) continue;
 
           const currency = this.normalizeCurrency(balance.currency);
+
           await this.prisma.debt.create({
             data: {
               clientId: client.id,
               amount,
               currency,
               status: 'ACTIVE',
-              comment: `MOYSKLAD_BALANCE:${externalId || name}:${currency}:SOURCE_${balance.source || 'UNKNOWN'}:SIGN_${balance.sign || 'UNKNOWN'}`,
+              comment: `MOYSKLAD_BALANCE:${externalId || name}:${currency}:RAW_SIGN_${balance.sign || 'UNKNOWN'}`,
             },
           });
 
@@ -233,19 +208,17 @@ export class IntegrationsService {
         }
       }
 
-      const message = `Qarzlar sync: ${created} ta qarz. Kontragent: ${counterpartyRows.length}, report: ${reportRows.length}. UZS: ${Math.round(totalUZS).toLocaleString('ru-RU')}, USD: ${totalUSD.toLocaleString('ru-RU')}`;
+      const message = `Qarzlar sync: ${created} ta qarz, ${reportRows.length} ta report qator. UZS: ${Math.round(totalUZS).toLocaleString('ru-RU')}, USD: ${totalUSD.toLocaleString('ru-RU')}`;
       await this.pushHistory(companyId, 'MOYSKLAD', 'DEBTS', 'SUCCESS', message, {
         created,
         updatedClients,
         skipped,
         reportRows: reportRows.length,
-        counterpartyRows: counterpartyRows.length,
         totalUZS,
         totalUSD,
-        moneyRule: 'UZS report/entity amount is used as UZS; USD minor money is divided by 100 when needed',
       });
 
-      return { ok: true, message, created, updatedClients, skipped, reportRows: reportRows.length, counterpartyRows: counterpartyRows.length, totalUZS, totalUSD };
+      return { ok: true, message, created, updatedClients, skipped, reportRows: reportRows.length, totalUZS, totalUSD };
     } catch (error: any) {
       return this.fail(companyId, 'MOYSKLAD', 'DEBTS', error?.message || 'Qarzlar sync xatosi');
     }
@@ -300,14 +273,14 @@ export class IntegrationsService {
   async syncMoyskladStock(companyId: string) {
     try {
       const settings = await this.getRawSettings(companyId);
-      let rows: any[] = [];
-
+      let data: any;
       try {
-        rows = await this.moyskladFetchAll(settings, '/report/stock/all?stockByStore=true', 1000, 100);
-      } catch (firstError: any) {
-        rows = await this.moyskladFetchAll(settings, '/report/stock/all', 1000, 100);
+        data = await this.moyskladFetch(settings, '/report/stock/all?limit=200&stockByStore=true');
+      } catch {
+        data = await this.moyskladFetch(settings, '/report/stock/all?limit=200');
       }
 
+      const rows = Array.isArray(data?.rows) ? data.rows : [];
       const result = await this.inventoryService.replaceStockFromMoysklad(companyId, rows);
       const message = `Qoldiq sync: ${result.rows} qator, ${result.totalQuantity} dona`;
       await this.pushHistory(companyId, 'MOYSKLAD', 'STOCK', 'SUCCESS', message, result);
@@ -318,13 +291,44 @@ export class IntegrationsService {
   }
 
   async syncMoyskladAll(companyId: string) {
-    const clients = await this.withTimeout(this.syncMoyskladClients(companyId), 90_000, 'Mijozlar sync 90 sekunddan oshdi');
-    const debts = await this.withTimeout(this.syncMoyskladDebts(companyId), 120_000, 'Qarzlar sync 120 sekunddan oshdi');
-    const warehouses = await this.withTimeout(this.syncMoyskladWarehouses(companyId), 60_000, 'Omborlar sync 60 sekunddan oshdi');
-    const products = await this.withTimeout(this.syncMoyskladProducts(companyId), 180_000, 'Tovarlar sync 180 sekunddan oshdi');
-    const stock = await this.withTimeout(this.syncMoyskladStock(companyId), 180_000, 'Qoldiq sync 180 sekunddan oshdi');
+    const runKey = `${companyId}:MOYSKLAD:ALL`;
+    const current = syncRunStore.get(runKey);
+    if (current?.running) {
+      await this.pushHistory(companyId, 'MOYSKLAD', 'ALL', 'RUNNING', `Sync all allaqachon ishlayapti: ${current.startedAt}`);
+      return { ok: true, running: true, message: 'Sync all allaqachon ishlayapti. Historyni yangilang.' };
+    }
 
-    return { ok: Boolean(clients.ok && debts.ok && products.ok && warehouses.ok && stock.ok), message: 'Sync all tugadi', clients, debts, warehouses, products, stock };
+    syncRunStore.set(runKey, { running: true, action: 'ALL', startedAt: new Date().toISOString() });
+    await this.pushHistory(companyId, 'MOYSKLAD', 'ALL', 'RUNNING', 'Sync all boshlandi: mijozlar → qarzlar → omborlar → tovarlar → qoldiq');
+
+    try {
+      const clients = await this.syncMoyskladClients(companyId);
+      const debts = await this.syncMoyskladDebts(companyId);
+      const warehouses = await this.syncMoyskladWarehouses(companyId);
+      const products = await this.syncMoyskladProducts(companyId);
+      const stock = await this.syncMoyskladStock(companyId);
+
+      const ok = Boolean(clients.ok && debts.ok && warehouses.ok && products.ok && stock.ok);
+      const message = ok
+        ? 'Sync all tugadi. Dashboard/Mijozlar/Qarzlar/Tovarlar/Omborlar yangilandi.'
+        : 'Sync all tugadi, lekin ayrim bo‘limlarda xato bor. Historyni ko‘r.';
+
+      await this.pushHistory(companyId, 'MOYSKLAD', 'ALL', ok ? 'SUCCESS' : 'ERROR', message, {
+        clients,
+        debts,
+        warehouses,
+        products,
+        stock,
+      });
+
+      return { ok, message, clients, debts, warehouses, products, stock };
+    } catch (error: any) {
+      const message = error?.message || 'Sync all xatosi';
+      await this.pushHistory(companyId, 'MOYSKLAD', 'ALL', 'ERROR', message);
+      return { ok: false, message };
+    } finally {
+      syncRunStore.delete(runKey);
+    }
   }
 
   async testOneC(companyId: string) {
@@ -390,30 +394,37 @@ export class IntegrationsService {
   }
 
   private async loadMoyskladCounterpartyReport(settings: Settings) {
+    const rows: any[] = [];
+
+    // Asosiy to'g'ri endpoint: report/counterparty.
+    // expand=counterparty qo'shiladi, shunda nom/id keladi.
     const attempts = [
       '/report/counterparty?expand=counterparty',
       '/report/counterparty',
     ];
 
     let lastError = '';
+
     for (const path of attempts) {
       try {
-        const rows = await this.moyskladFetchAll(settings, path, 1000, 100);
-        if (rows.length) return this.uniqueCounterpartyRows(rows);
+        const part = await this.moyskladFetchAll(settings, path, 100, 20);
+        if (part.length) rows.push(...part);
+        if (rows.length) break;
       } catch (error: any) {
         lastError = error?.message || String(error);
       }
     }
 
-    throw new Error(lastError || 'MoySklad report/counterparty bo‘sh qaytdi');
-  }
+    if (!rows.length) {
+      throw new Error(lastError || 'MoySklad report/counterparty bo\'sh qaytdi');
+    }
 
-  private uniqueCounterpartyRows(rows: any[]) {
+    // Faqat dublikatlarni tozalaymiz. 400+ qarzdor bo'lsa ham hammasi qoladi.
     const seen = new Set<string>();
     const unique: any[] = [];
 
     for (const row of rows) {
-      const agent = row?.counterparty || row?.agent || row?.customer || row?.organization || row;
+      const agent = row?.counterparty || row?.agent || row;
       const id = this.extractExternalId(agent) || String(agent?.name || row?.name || Math.random());
       const rawBalance = row?.balance ?? row?.debt ?? row?.accountBalance ?? row?.sum ?? row?.saldo ?? row?.remainder ?? '';
       const key = `${id}:${rawBalance}:${this.normalizeCurrency(row?.currency?.name || row?.currency?.isoCode || row?.currency?.code || row?.currency || '')}`;
@@ -495,8 +506,8 @@ export class IntegrationsService {
     return this.prisma.client.findFirst({ where: { companyId, fullName: params.name } });
   }
 
-  private extractReportBalances(row: any, entity?: any) {
-    const result: { amount: number; currency: string; sign: string; source: string }[] = [];
+  private extractReportBalances(row: any) {
+    const result: { amount: number; currency: string; sign: string }[] = [];
 
     const baseCurrency = this.normalizeCurrency(
       row?.currency?.isoCode ||
@@ -504,62 +515,51 @@ export class IntegrationsService {
       row?.currency?.name ||
       row?.accountCurrency?.isoCode ||
       row?.accountCurrency?.name ||
-      entity?.currency?.isoCode ||
-      entity?.currency?.code ||
-      entity?.currency?.name ||
       'UZS',
     );
 
+    // MoySklad pul qiymatlari ko'p hollarda tiyin/kopeyka formatida keladi: 351994562 => 3 519 945.62
     const directFields = ['balance', 'debt', 'accountBalance', 'sum', 'saldo', 'remainder'];
     for (const field of directFields) {
       if (row?.[field] === undefined || row?.[field] === null) continue;
       const raw = Number(row[field]);
       if (!Number.isFinite(raw) || raw === 0) continue;
-      result.push({ amount: this.normalizeDebtMoney(raw, baseCurrency, 'report'), currency: baseCurrency, sign: raw > 0 ? 'PLUS' : 'MINUS', source: `REPORT_${field}` });
+      result.push({ amount: this.fromMoyskladMinorMoney(raw, baseCurrency), currency: baseCurrency, sign: raw > 0 ? 'PLUS' : 'MINUS' });
       break;
     }
 
-    const arrays = [row?.balances, row?.balanceByCurrency, row?.balancesByCurrency, row?.currencyBalances, entity?.balances, entity?.balanceByCurrency, entity?.balancesByCurrency, entity?.currencyBalances].filter(Array.isArray);
+    // Ba'zi accountlarda qarzlar valyuta bo'yicha array bo'lib keladi.
+    const arrays = [row?.balances, row?.balanceByCurrency, row?.balancesByCurrency, row?.currencyBalances].filter(Array.isArray);
     for (const arr of arrays) {
       for (const item of arr) {
         const raw = Number(item?.balance ?? item?.amount ?? item?.sum ?? item?.debt ?? item?.value ?? 0);
         if (!Number.isFinite(raw) || raw === 0) continue;
         const currency = this.normalizeCurrency(item?.currency?.isoCode || item?.currency?.code || item?.currency?.name || item?.currency || baseCurrency);
-        result.push({ amount: this.normalizeDebtMoney(raw, currency, 'report-array'), currency, sign: raw > 0 ? 'PLUS' : 'MINUS', source: 'REPORT_CURRENCY_ARRAY' });
+        result.push({ amount: this.fromMoyskladMinorMoney(raw, currency), currency, sign: raw > 0 ? 'PLUS' : 'MINUS' });
       }
     }
 
-    const directEntityFields = ['balance', 'debt', 'accountBalance', 'sum', 'saldo', 'remainder'];
-    for (const field of directEntityFields) {
-      if (entity?.[field] === undefined || entity?.[field] === null) continue;
-      const raw = Number(entity[field]);
-      if (!Number.isFinite(raw) || raw === 0) continue;
-      const currency = this.normalizeCurrency(entity?.currency?.isoCode || entity?.currency?.code || entity?.currency?.name || baseCurrency);
-      result.push({ amount: this.normalizeDebtMoney(raw, currency, 'entity'), currency, sign: raw > 0 ? 'PLUS' : 'MINUS', source: `ENTITY_${field}` });
-      break;
-    }
-
-    const attrs = [...(Array.isArray(row?.attributes) ? row.attributes : []), ...(Array.isArray(entity?.attributes) ? entity.attributes : [])];
+    // Custom attribute bilan USD qarz saqlangan bo'lsa ham ushlaydi.
+    const attrs = Array.isArray(row?.attributes) ? row.attributes : [];
     for (const attr of attrs) {
       const name = String(attr?.name || '').toLowerCase();
-      if (!name.includes('qarz') && !name.includes('долг') && !name.includes('debt') && !name.includes('balance') && !name.includes('остат')) continue;
+      if (!name.includes('qarz') && !name.includes('долг') && !name.includes('debt') && !name.includes('balance')) continue;
       const raw = Number(attr?.value || 0);
       if (!Number.isFinite(raw) || raw === 0) continue;
       const currency = this.normalizeCurrency(name.includes('usd') || name.includes('$') || name.includes('дол') ? 'USD' : baseCurrency);
-      result.push({ amount: this.normalizeDebtMoney(raw, currency, 'attribute'), currency, sign: raw > 0 ? 'PLUS' : 'MINUS', source: `ATTRIBUTE_${attr?.name || ''}` });
+      result.push({ amount: Math.abs(raw), currency, sign: raw > 0 ? 'PLUS' : 'MINUS' });
     }
 
-    const merged = new Map<string, { amount: number; sign: string; source: string }>();
+    const merged = new Map<string, { amount: number; sign: string }>();
     for (const item of result) {
-      const prev = merged.get(item.currency) || { amount: 0, sign: item.sign, source: item.source };
+      const prev = merged.get(item.currency) || { amount: 0, sign: item.sign };
       prev.amount += Math.abs(item.amount);
       if (item.sign === 'MINUS') prev.sign = 'MINUS';
-      prev.source = [prev.source, item.source].filter(Boolean).join('+');
       merged.set(item.currency, prev);
     }
 
     return [...merged.entries()]
-      .map(([currency, data]) => ({ currency, amount: data.amount, sign: data.sign, source: data.source }))
+      .map(([currency, data]) => ({ currency, amount: data.amount, sign: data.sign }))
       .filter((x) => x.amount > 0);
   }
 
@@ -587,25 +587,16 @@ export class IntegrationsService {
     return [...merged.entries()].map(([currency, amount]) => ({ currency, amount }));
   }
 
-  private normalizeDebtMoney(value: any, currency: string, source: string) {
+  private fromMoyskladMinorMoney(value: any, currency = 'UZS') {
     const n = Number(value || 0);
     if (!Number.isFinite(n)) return 0;
-    const abs = Math.abs(n);
 
-    // Operix uchun muhim: UZS qarzlar MoySklad'da ko'p accountlarda tayyor so'm sifatida keladi.
-    // Oldingi patch /100 qilgani uchun umumiy qarz 100 baravar kamayib chiqdi.
-    // USD esa ko'p hollarda cent formatida keladi, shuning uchun katta qiymatlarda /100 qilamiz.
-    if (this.normalizeCurrency(currency) === 'USD' && abs >= 1000 && !String(source).includes('attribute')) {
-      return abs / 100;
-    }
-
-    return abs;
-  }
-
-  private fromMoyskladMinorMoney(value: any) {
-    const n = Number(value || 0);
-    if (!Number.isFinite(n)) return 0;
-    return Math.abs(n) / 100;
+    // Digi World MoySklad report/counterparty UZS balansni allaqachon so'mda qaytaryapti.
+    // Oldingi kod /100 qilgani uchun 100 baravar kichik chiqayotgan edi.
+    // USD odatda cent formatda keladi, shuning uchun USD ni /100 qilamiz.
+    const cur = this.normalizeCurrency(currency);
+    if (cur === 'USD') return Math.abs(n) / 100;
+    return Math.abs(n);
   }
 
   private normalizeMoyskladMoney(value: any) {
@@ -667,7 +658,17 @@ export class IntegrationsService {
   }
 
   private async pushHistory(companyId: string, provider: string, action: string, status: string, message: string, payload?: any) {
-    const item = { id: `${Date.now()}_${Math.random().toString(16).slice(2)}`, provider, action, status, message, payload, createdAt: new Date().toISOString() };
+    const item = {
+      id: `${Date.now()}_${Math.random().toString(16).slice(2)}`,
+      provider,
+      action,
+      source: provider,
+      type: action,
+      status,
+      message,
+      payload,
+      createdAt: new Date().toISOString(),
+    };
     const current = historyStore.get(companyId) || [];
     historyStore.set(companyId, [item, ...current].slice(0, 50));
 
