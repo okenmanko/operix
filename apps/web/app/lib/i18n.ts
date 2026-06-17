@@ -64,10 +64,10 @@ const dictionary: Record<Lang, Record<string, string>> = {
     todayPayment: "Bugungi to‘lov",
     uzsBalance: "UZS balans",
     usdBalance: "USD balans",
+    debtStatuses: "Qarz statuslari",
     totalDebt: "Jami qarz",
     paid: "To‘langan",
     remaining: "Qoldiq",
-    debtStatuses: "Qarz statuslari",
     active: "Aktiv",
     closed: "Yopilgan",
     overdue: "Muddati o‘tgan",
@@ -77,6 +77,12 @@ const dictionary: Record<Lang, Record<string, string>> = {
     debt: "Qarz",
     noTopDebtors: "Top qarzdorlar yo‘q",
     dashboardLoadError: "Dashboard yuklanmadi",
+    noData: "Ma’lumot yo‘q",
+    productTypes: "Mahsulot turi",
+    totalStock: "Jami qoldiq",
+    totalAmount: "Jami summa",
+    items: "dona",
+    all: "Hammasi",
   },
   ru: {
     dashboard: "Дашборд",
@@ -93,7 +99,7 @@ const dictionary: Record<Lang, Record<string, string>> = {
     integrations: "Интеграции",
     delivery: "Доставка",
     qrCodes: "QR коды",
-    qrScanner: "QR Сканер",
+    qrScanner: "QR сканер",
     movements: "Движения",
     cashflow: "ДДС",
     sales: "Продажи POS",
@@ -118,10 +124,10 @@ const dictionary: Record<Lang, Record<string, string>> = {
     todayPayment: "Платежи сегодня",
     uzsBalance: "Баланс UZS",
     usdBalance: "Баланс USD",
+    debtStatuses: "Статусы долгов",
     totalDebt: "Общий долг",
     paid: "Оплачено",
     remaining: "Остаток",
-    debtStatuses: "Статусы долгов",
     active: "Активные",
     closed: "Закрытые",
     overdue: "Просроченные",
@@ -131,6 +137,12 @@ const dictionary: Record<Lang, Record<string, string>> = {
     debt: "Долг",
     noTopDebtors: "Топ должников нет",
     dashboardLoadError: "Дашборд не загрузился",
+    noData: "Данных нет",
+    productTypes: "Виды товаров",
+    totalStock: "Общий остаток",
+    totalAmount: "Общая сумма",
+    items: "шт",
+    all: "Все",
   },
   en: {
     dashboard: "Dashboard",
@@ -147,7 +159,7 @@ const dictionary: Record<Lang, Record<string, string>> = {
     integrations: "Integrations",
     delivery: "Delivery",
     qrCodes: "QR codes",
-    qrScanner: "QR Scanner",
+    qrScanner: "QR scanner",
     movements: "Movements",
     cashflow: "Cashflow",
     sales: "Sales POS",
@@ -172,10 +184,10 @@ const dictionary: Record<Lang, Record<string, string>> = {
     todayPayment: "Today payment",
     uzsBalance: "UZS balance",
     usdBalance: "USD balance",
+    debtStatuses: "Debt statuses",
     totalDebt: "Total debt",
     paid: "Paid",
     remaining: "Remaining",
-    debtStatuses: "Debt statuses",
     active: "Active",
     closed: "Closed",
     overdue: "Overdue",
@@ -185,11 +197,17 @@ const dictionary: Record<Lang, Record<string, string>> = {
     debt: "Debt",
     noTopDebtors: "No top debtors",
     dashboardLoadError: "Dashboard did not load",
+    noData: "No data",
+    productTypes: "Product types",
+    totalStock: "Total stock",
+    totalAmount: "Total amount",
+    items: "pcs",
+    all: "All",
   },
 };
 
 function normalizeLang(value: string | null): Lang {
-  if (value === "ru" || value === "en" || value === "uz") return value;
+  if (value === "uz" || value === "ru" || value === "en") return value;
   return "uz";
 }
 
@@ -208,7 +226,10 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 
   function setLang(next: Lang) {
     setLangState(next);
-    if (typeof window !== "undefined") localStorage.setItem("operix_lang", next);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("operix_lang", next);
+      document.documentElement.lang = next;
+    }
   }
 
   const value = useMemo<I18nValue>(

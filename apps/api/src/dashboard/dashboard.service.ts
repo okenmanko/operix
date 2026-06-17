@@ -15,6 +15,7 @@ export class DashboardService {
       this.prisma.debt.findMany({
         where: debtWhere,
         include: { client: true, payments: true },
+        orderBy: { createdAt: 'desc' },
       }),
       this.prisma.payment.findMany({
         where: paymentWhere,
@@ -27,6 +28,8 @@ export class DashboardService {
     let totalDebtsUSD = 0;
     let totalPaidUZS = 0;
     let totalPaidUSD = 0;
+
+    const now = new Date();
 
     const debtCards = debts.map((debt: any) => {
       const paid = (debt.payments || [])
@@ -48,9 +51,12 @@ export class DashboardService {
 
       return {
         id: debt.id,
+        clientId: debt.clientId,
+        fullName: debt.client?.fullName || '',
         clientName: debt.client?.fullName || '',
         phone: debt.client?.phone || '',
         amount,
+        total: remaining,
         currency: debt.currency,
         paid,
         remaining,
@@ -59,8 +65,7 @@ export class DashboardService {
       };
     });
 
-    const today = new Date();
-    const todayKey = today.toISOString().slice(0, 10);
+    const todayKey = now.toISOString().slice(0, 10);
 
     const todayPayments = payments.filter((payment: any) =>
       new Date(payment.createdAt).toISOString().slice(0, 10) === todayKey,
@@ -75,11 +80,31 @@ export class DashboardService {
       .reduce((sum: number, payment: any) => sum + Number(payment.amount || 0), 0);
 
     const activeDebts = debtCards.filter((debt) => debt.status !== 'CLOSED' && debt.remaining > 0);
+    const closedDebts = debtCards.filter((debt) => debt.status === 'CLOSED' || debt.remaining <= 0);
+    const overdueDebts = activeDebts.filter((debt) => debt.dueDate && new Date(debt.dueDate) < now);
+
+    const topDebtorsUZS = activeDebts
+      .filter((debt) => debt.currency === 'UZS')
+      .sort((a, b) => b.remaining - a.remaining)
+      .slice(0, 10);
+
+    const topDebtorsUSD = activeDebts
+      .filter((debt) => debt.currency === 'USD')
+      .sort((a, b) => b.remaining - a.remaining)
+      .slice(0, 10);
+
+    const topDebtors = activeDebts
+      .slice()
+      .sort((a, b) => b.remaining - a.remaining)
+      .slice(0, 10);
 
     return {
       clientsCount,
       debtsCount: debts.length,
       activeDebtsCount: activeDebts.length,
+      activeDebts: activeDebts.length,
+      closedDebts: closedDebts.length,
+      overdueDebts: overdueDebts.length,
       paymentsCount: payments.length,
 
       totalDebtsUZS,
@@ -89,18 +114,13 @@ export class DashboardService {
       remainingUZS: totalDebtsUZS - totalPaidUZS,
       remainingUSD: totalDebtsUSD - totalPaidUSD,
 
+      todayPayments: todayPaymentsUZS,
       todayPaymentsUZS,
       todayPaymentsUSD,
 
-      topDebtorsUZS: activeDebts
-        .filter((debt) => debt.currency === 'UZS')
-        .sort((a, b) => b.remaining - a.remaining)
-        .slice(0, 10),
-
-      topDebtorsUSD: activeDebts
-        .filter((debt) => debt.currency === 'USD')
-        .sort((a, b) => b.remaining - a.remaining)
-        .slice(0, 10),
+      topDebtors,
+      topDebtorsUZS,
+      topDebtorsUSD,
 
       recentPayments: payments.slice(0, 10),
     };

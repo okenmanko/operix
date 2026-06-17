@@ -1,9 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import AppLayout from "./components/AppLayout";
 import { apiJson, money } from "./lib/api";
 import { useI18n } from "./lib/i18n";
+
+type TopDebtor = {
+  id?: string;
+  fullName?: string;
+  clientName?: string;
+  phone?: string;
+  total?: number;
+  amount?: number;
+  remaining?: number;
+  currency?: string;
+};
 
 type Dashboard = {
   clientsCount?: number;
@@ -16,10 +27,15 @@ type Dashboard = {
   remainingUZS?: number;
   remainingUSD?: number;
   todayPayments?: number;
+  todayPaymentsUZS?: number;
+  todayPaymentsUSD?: number;
   activeDebts?: number;
+  activeDebtsCount?: number;
   closedDebts?: number;
   overdueDebts?: number;
-  topDebtors?: { id?: string; fullName?: string; phone?: string; total?: number; currency?: string }[];
+  topDebtors?: TopDebtor[];
+  topDebtorsUZS?: TopDebtor[];
+  topDebtorsUSD?: TopDebtor[];
 };
 
 const empty: Dashboard = {
@@ -33,11 +49,21 @@ const empty: Dashboard = {
   remainingUZS: 0,
   remainingUSD: 0,
   todayPayments: 0,
+  todayPaymentsUZS: 0,
+  todayPaymentsUSD: 0,
   activeDebts: 0,
+  activeDebtsCount: 0,
   closedDebts: 0,
   overdueDebts: 0,
   topDebtors: [],
+  topDebtorsUZS: [],
+  topDebtorsUSD: [],
 };
+
+function asNumber(value: unknown) {
+  const n = Number(value || 0);
+  return Number.isFinite(n) ? n : 0;
+}
 
 export default function DashboardPage() {
   const { t } = useI18n();
@@ -58,6 +84,28 @@ export default function DashboardPage() {
     load();
   }, []);
 
+  const topDebtors = useMemo(() => {
+    const rows = [
+      ...(Array.isArray(data.topDebtors) ? data.topDebtors : []),
+      ...(Array.isArray(data.topDebtorsUZS) ? data.topDebtorsUZS : []),
+      ...(Array.isArray(data.topDebtorsUSD) ? data.topDebtorsUSD : []),
+    ];
+
+    const seen = new Set<string>();
+    return rows
+      .filter((item) => {
+        const key = item.id || `${item.clientName || item.fullName}-${item.phone}-${item.currency}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .sort((a, b) => asNumber(b.remaining ?? b.total ?? b.amount) - asNumber(a.remaining ?? a.total ?? a.amount))
+      .slice(0, 10);
+  }, [data.topDebtors, data.topDebtorsUZS, data.topDebtorsUSD]);
+
+  const activeCount = data.activeDebts ?? data.activeDebtsCount ?? 0;
+  const todayUZS = data.todayPayments ?? data.todayPaymentsUZS ?? 0;
+
   return (
     <AppLayout title={t("dashboard")} subtitle={t("dashboardSubtitle")}>
       {error ? <ErrorBox text={error} /> : null}
@@ -66,7 +114,7 @@ export default function DashboardPage() {
         <Stat label={t("clients")} value={data.clientsCount || 0} />
         <Stat label={t("debts")} value={data.debtsCount || 0} />
         <Stat label={t("payments")} value={data.paymentsCount || 0} />
-        <Stat label={t("todayPayment")} value={money(data.todayPayments, "UZS")} />
+        <Stat label={t("todayPayment")} value={money(todayUZS, "UZS")} />
       </div>
 
       <div className="mt-5 grid grid-cols-3 gap-5">
@@ -83,7 +131,7 @@ export default function DashboardPage() {
         </Panel>
 
         <Panel title={t("debtStatuses")}>
-          <Metric label={t("active")} value={String(data.activeDebts || 0)} />
+          <Metric label={t("active")} value={String(activeCount || 0)} />
           <Metric label={t("closed")} value={String(data.closedDebts || 0)} />
           <Metric label={t("overdue")} value={String(data.overdueDebts || 0)} />
         </Panel>
@@ -103,14 +151,17 @@ export default function DashboardPage() {
               </tr>
             </thead>
             <tbody>
-              {(data.topDebtors || []).map((item, index) => (
-                <tr key={item.id || index} className="border-t border-[var(--line-soft)]">
-                  <td className="p-4">{item.fullName || "—"}</td>
-                  <td className="p-4 text-[var(--muted)]">{item.phone || "—"}</td>
-                  <td className="p-4">{money(item.total, item.currency || "UZS")}</td>
-                </tr>
-              ))}
-              {!(data.topDebtors || []).length ? (
+              {topDebtors.map((item, index) => {
+                const amount = item.remaining ?? item.total ?? item.amount ?? 0;
+                return (
+                  <tr key={item.id || index} className="border-t border-[var(--line-soft)]">
+                    <td className="p-4">{item.fullName || item.clientName || "—"}</td>
+                    <td className="p-4 text-[var(--muted)]">{item.phone || "—"}</td>
+                    <td className="p-4">{money(amount, item.currency || "UZS")}</td>
+                  </tr>
+                );
+              })}
+              {!topDebtors.length ? (
                 <tr>
                   <td colSpan={3} className="p-8 text-center text-[var(--muted-2)]">
                     {t("noTopDebtors")}

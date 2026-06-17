@@ -5,13 +5,16 @@ const memoryProducts = new Map<string, any[]>();
 const memoryWarehouses = new Map<string, any[]>();
 const memoryStock = new Map<string, any[]>();
 
+const STOCK_PROVIDER = 'MOYSKLAD_STOCK';
+const STOCK_KEY = 'rows';
+
 @Injectable()
 export class InventoryService {
   constructor(private readonly prisma: PrismaService) {}
 
   async products(companyId: string) {
     const products = await this.rawProducts(companyId);
-    const stockRows = memoryStock.get(companyId) || [];
+    const stockRows = await this.getStockRows(companyId);
 
     return products.map((product) => this.attachProductStock(product, stockRows));
   }
@@ -19,7 +22,7 @@ export class InventoryService {
   async warehouses(companyId: string) {
     const warehouses = await this.rawWarehouses(companyId);
     const products = await this.products(companyId);
-    const stockRows = memoryStock.get(companyId) || [];
+    const stockRows = await this.getStockRows(companyId);
 
     return warehouses.map((warehouse) => {
       const rows = stockRows.filter((row) => this.sameWarehouse(row.warehouseName, warehouse.name));
@@ -68,7 +71,7 @@ export class InventoryService {
     }
 
     const products = await this.products(companyId);
-    const stockRows = memoryStock.get(companyId) || [];
+    const stockRows = await this.getStockRows(companyId);
     const rows = stockRows.filter((row) => this.sameWarehouse(row.warehouseName, warehouse.name));
 
     const items = rows
@@ -149,11 +152,13 @@ export class InventoryService {
 
     const sku = String(item?.article || item?.code || '').trim();
     const barcode = String(item?.barcodes?.[0]?.ean13 || item?.barcodes?.[0]?.ean8 || '').trim();
+    const externalId = String(item?.id || item?.meta?.href || '').trim() || null;
 
     const data = this.toProductData(companyId, {
       name,
       sku,
       barcode,
+      externalId,
       model: item?.code || '',
       category: String(item?.pathName || '').trim(),
       description: [item?.description || '', item?.id ? `MoySklad ID: ${item.id}` : ''].filter(Boolean).join('\n'),
@@ -165,6 +170,7 @@ export class InventoryService {
 
     if (prismaAny.product?.findFirst && prismaAny.product?.update && prismaAny.product?.create) {
       const existing =
+        (externalId ? await prismaAny.product.findFirst({ where: { companyId, externalId } }) : null) ||
         (sku ? await prismaAny.product.findFirst({ where: { companyId, sku } }) : null) ||
         (barcode ? await prismaAny.product.findFirst({ where: { companyId, barcode } }) : null) ||
         (await prismaAny.product.findFirst({ where: { companyId, name } }));
@@ -179,7 +185,12 @@ export class InventoryService {
     }
 
     const list = memoryProducts.get(companyId) || [];
-    const index = list.findIndex((p) => (sku && p.sku === sku) || (barcode && p.barcode === barcode) || p.name === name);
+    const index = list.findIndex((p) =>
+      (externalId && p.externalId === externalId) ||
+      (sku && p.sku === sku) ||
+      (barcode && p.barcode === barcode) ||
+      p.name === name,
+    );
 
     if (index >= 0) {
       list[index] = { ...list[index], ...data, updatedAt: new Date().toISOString() };
@@ -204,14 +215,18 @@ export class InventoryService {
     const name = String(item?.name || '').trim();
     if (!name) return { action: 'skipped' };
 
+    const externalId = String(item?.id || item?.meta?.href || '').trim() || null;
     const data = this.toWarehouseData(companyId, {
       name,
+      externalId,
       address: item?.address || '',
       isActive: true,
     });
 
     if (prismaAny.warehouse?.findFirst && prismaAny.warehouse?.update && prismaAny.warehouse?.create) {
-      const existing = await prismaAny.warehouse.findFirst({ where: { companyId, name } });
+      const existing =
+        (externalId ? await prismaAny.warehouse.findFirst({ where: { companyId, externalId } }) : null) ||
+        (await prismaAny.warehouse.findFirst({ where: { companyId, name } }));
 
       if (existing) {
         await prismaAny.warehouse.update({ where: { id: existing.id }, data });
@@ -223,7 +238,7 @@ export class InventoryService {
     }
 
     const list = memoryWarehouses.get(companyId) || [];
-    const index = list.findIndex((w) => w.name === name);
+    const index = list.findIndex((w) => (externalId && w.externalId === externalId) || w.name === name);
 
     if (index >= 0) {
       list[index] = { ...list[index], ...data, updatedAt: new Date().toISOString() };
@@ -259,7 +274,7 @@ export class InventoryService {
             storeRow?.store?.name ||
             storeRow?.warehouse?.name ||
             storeRow?.meta?.href ||
-            'Sklad'
+            'Sklad',
           ).trim();
 
           const quantity = Number(storeRow?.stock ?? storeRow?.quantity ?? storeRow?.count ?? 0);
@@ -277,6 +292,7 @@ export class InventoryService {
     }
 
     memoryStock.set(companyId, nextRows);
+    await this.saveStockRows(companyId, nextRows);
 
     return {
       rows: nextRows.length,
@@ -310,6 +326,49 @@ export class InventoryService {
     return memoryWarehouses.get(companyId) || [];
   }
 
+  private async getStockRows(companyId: string) {
+    const cached = memoryStock.get(companyId);
+    if (cached) return cached;
+
+    const fromDb = await this.loadStockRows(companyId);
+    memoryStock.set(companyId, fromDb);
+    return fromDb;
+  }
+
+  private async loadStockRows(companyId: string) {
+    const row = await this.prisma.integrationSetting.findFirst({
+      where: { companyId, provider: STOCK_PROVIDER, key: STOCK_KEY, isActive: true },
+    });
+
+    if (!row?.value) return [];
+
+    try {
+      const parsed = JSON.parse(row.value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private async saveStockRows(companyId: string, rows: any[]) {
+    const value = JSON.stringify(rows.slice(0, 20000));
+    const existing = await this.prisma.integrationSetting.findFirst({
+      where: { companyId, provider: STOCK_PROVIDER, key: STOCK_KEY },
+    });
+
+    if (existing) {
+      await this.prisma.integrationSetting.update({
+        where: { id: existing.id },
+        data: { value, isActive: true },
+      });
+      return;
+    }
+
+    await this.prisma.integrationSetting.create({
+      data: { companyId, provider: STOCK_PROVIDER, key: STOCK_KEY, value, isActive: true },
+    });
+  }
+
   private attachProductStock(product: any, stockRows: any[]) {
     const rows = stockRows.filter((row) => this.sameProduct(row, product));
     const stock = rows.reduce((sum, row) => sum + Number(row.quantity || 0), 0);
@@ -335,6 +394,7 @@ export class InventoryService {
       name: String(body.name || body.title || '').trim(),
       sku: body.sku || null,
       barcode: body.barcode || null,
+      externalId: body.externalId || null,
       model: body.model || null,
       category: body.category || null,
       description: body.description || null,
@@ -349,6 +409,7 @@ export class InventoryService {
     return {
       companyId,
       name: String(body.name || '').trim(),
+      externalId: body.externalId || null,
       address: body.address || null,
       isActive: body.isActive === undefined ? true : Boolean(body.isActive),
     };
@@ -380,7 +441,7 @@ export class InventoryService {
     return Boolean(
       (rowSku && productSku && rowSku === productSku) ||
       (rowBarcode && productBarcode && rowBarcode === productBarcode) ||
-      (rowName && productName && rowName === productName)
+      (rowName && productName && rowName === productName),
     );
   }
 
