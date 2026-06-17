@@ -78,25 +78,33 @@ export default function IntegrationsPage() {
   }
 
   async function run(path: string, label: string) {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 25_000);
+
     try {
       setLoading(label);
       setError("");
       setMessage("");
 
-      const result = await apiJson<any>(path, { method: "POST" });
+      const result = await apiJson<any>(path, { method: "POST", signal: controller.signal });
 
-      setMessage(result?.message || "Bajarildi");
-      await load();
+      setMessage(result?.message || "Boshlandi. Natijani Historydan ko‘rasiz.");
+      window.setTimeout(load, 1500);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Xatolik");
-      await load();
+      window.setTimeout(load, 1500);
     } finally {
+      window.clearTimeout(timer);
       setLoading("");
     }
   }
 
   const currentTestPath = isMoysklad ? "/integrations/moysklad/test" : "/integrations/onec/test";
   const currentClientsPath = isMoysklad ? "/integrations/moysklad/sync-clients" : "/integrations/onec/sync-clients";
+  const currentDebtsPath = "/integrations/moysklad/sync-debts";
+  const currentWarehousesPath = "/integrations/moysklad/sync-warehouses";
+  const currentProductsPath = isMoysklad ? "/integrations/moysklad/sync-products" : "/integrations/onec/sync-products";
+  const currentStockPath = "/integrations/moysklad/sync-stock";
   const currentAllPath = isMoysklad ? "/integrations/moysklad/sync-all" : "/integrations/onec/sync-all";
 
   return (
@@ -157,15 +165,19 @@ export default function IntegrationsPage() {
             </div>
           )}
 
-          <div className="mt-5 grid grid-cols-4 gap-2">
+          <div className="mt-5 grid grid-cols-2 gap-2 xl:grid-cols-7">
             <SmallButton active onClick={save} loading={loading === "save"} icon={<Save size={15} />}>Saqlash</SmallButton>
             <SmallButton onClick={() => run(currentTestPath, "test")} loading={loading === "test"}>Test</SmallButton>
             <SmallButton onClick={() => run(currentClientsPath, "clients")} loading={loading === "clients"}>Mijozlar</SmallButton>
+            {isMoysklad ? <SmallButton onClick={() => run(currentDebtsPath, "debts")} loading={loading === "debts"}>Qarzlar</SmallButton> : null}
+            {isMoysklad ? <SmallButton onClick={() => run(currentWarehousesPath, "warehouses")} loading={loading === "warehouses"}>Omborlar</SmallButton> : null}
+            <SmallButton onClick={() => run(currentProductsPath, "products")} loading={loading === "products"}>Tovarlar</SmallButton>
+            {isMoysklad ? <SmallButton onClick={() => run(currentStockPath, "stock")} loading={loading === "stock"}>Qoldiq</SmallButton> : null}
             <SmallButton active onClick={() => run(currentAllPath, "all")} loading={loading === "all"} icon={<RefreshCcw size={15} />}>Sync all</SmallButton>
           </div>
 
           <div className="mt-4 rounded-[18px] bg-[#f8fafc] px-4 py-3 text-[12.5px] leading-5 text-[#64748b]">
-            Sync all: mijozlar → omborlar → productlar → sklad qoldiq.
+            Sync all backgroundda ishlaydi. Sahifa aylanib qolmaydi. Qarzlar uchun alohida “Qarzlar” bosish ham mumkin.
           </div>
         </div>
 
@@ -215,7 +227,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 function SmallButton({ children, onClick, active, loading, icon }: { children: React.ReactNode; onClick: () => void; active?: boolean; loading?: boolean; icon?: React.ReactNode }) {
   return (
-    <button onClick={onClick} disabled={loading} className={`flex h-11 items-center justify-center gap-2 rounded-[15px] px-4 text-[13px] transition disabled:opacity-60 ${active ? "bg-[#315efb] text-white shadow-[0_12px_26px_rgba(49,94,251,0.22)]" : "bg-[#f4f7fb] text-[#64748b] hover:bg-[#eef4ff] hover:text-[#315efb]"}`}>
+    <button onClick={onClick} disabled={Boolean(loading)} className={`flex h-11 items-center justify-center gap-2 rounded-[15px] px-4 text-[13px] transition disabled:opacity-60 ${active ? "bg-[#315efb] text-white shadow-[0_12px_26px_rgba(49,94,251,0.22)]" : "bg-[#f4f7fb] text-[#64748b] hover:bg-[#eef4ff] hover:text-[#315efb]"}`}>
       {loading ? <Loader2 size={15} className="animate-spin" /> : icon}{children}
     </button>
   );

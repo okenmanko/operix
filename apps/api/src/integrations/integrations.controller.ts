@@ -31,33 +31,38 @@ export class IntegrationsController {
 
   @Post('moysklad/sync-clients')
   syncMoyskladClients(@CurrentUser() user: AuthUser) {
-    return this.integrationsService.syncMoyskladClients(user.companyId);
+    this.integrationsService.syncMoyskladClients(user.companyId).catch(() => null);
+    return { ok: true, message: 'Mijozlar sync boshlandi. Natijani Historydan ko‘rasiz.' };
   }
-
 
   @Post('moysklad/sync-debts')
   syncMoyskladDebts(@CurrentUser() user: AuthUser) {
-    return this.integrationsService.syncMoyskladDebts(user.companyId);
+    this.integrationsService.syncMoyskladDebts(user.companyId).catch(() => null);
+    return { ok: true, message: 'Qarzlar sync boshlandi. 400+ kontragent bo‘lsa ham backgroundda ishlaydi.' };
   }
 
   @Post('moysklad/sync-products')
   syncMoyskladProducts(@CurrentUser() user: AuthUser) {
-    return this.integrationsService.syncMoyskladProducts(user.companyId);
+    this.integrationsService.syncMoyskladProducts(user.companyId).catch(() => null);
+    return { ok: true, message: 'Tovarlar sync boshlandi. Natijani Historydan ko‘rasiz.' };
   }
 
   @Post('moysklad/sync-warehouses')
   syncMoyskladWarehouses(@CurrentUser() user: AuthUser) {
-    return this.integrationsService.syncMoyskladWarehouses(user.companyId);
+    this.integrationsService.syncMoyskladWarehouses(user.companyId).catch(() => null);
+    return { ok: true, message: 'Omborlar sync boshlandi. Natijani Historydan ko‘rasiz.' };
   }
 
   @Post('moysklad/sync-stock')
   syncMoyskladStock(@CurrentUser() user: AuthUser) {
-    return this.integrationsService.syncMoyskladStock(user.companyId);
+    this.integrationsService.syncMoyskladStock(user.companyId).catch(() => null);
+    return { ok: true, message: 'Qoldiq sync boshlandi. Natijani Historydan ko‘rasiz.' };
   }
 
   @Post('moysklad/sync-all')
   syncMoyskladAll(@CurrentUser() user: AuthUser) {
-    return this.integrationsService.syncMoyskladAll(user.companyId);
+    this.integrationsService.syncMoyskladAll(user.companyId).catch(() => null);
+    return { ok: true, message: 'Sync all boshlandi. Sahifa osilmaydi. Natijani Historydan ko‘rasiz.' };
   }
 
   @Post('onec/test')

@@ -175,7 +175,10 @@ export async function apiJson<T = any>(path: string, options: RequestInit = {}):
       credentials: "include",
       headers: makeHeaders(options, true),
     });
-  } catch {
+  } catch (error: any) {
+    if (error?.name === "AbortError") {
+      throw new Error("So‘rov bekor qilindi yoki vaqt tugadi. Background sync davom etishi mumkin. Historyni yangilang.");
+    }
     throw new Error(`API ulanmagan. API serverni tekshir: ${API_URL}`);
   }
 
@@ -223,7 +226,10 @@ export async function apiUpload<T = any>(path: string, formData: FormData): Prom
       headers,
       body: formData,
     });
-  } catch {
+  } catch (error: any) {
+    if (error?.name === "AbortError") {
+      throw new Error("So‘rov bekor qilindi yoki vaqt tugadi. Background sync davom etishi mumkin. Historyni yangilang.");
+    }
     throw new Error(`API ulanmagan. API serverni tekshir: ${API_URL}`);
   }
 
