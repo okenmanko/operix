@@ -1,34 +1,26 @@
 "use client";
 
-import { useI18n } from "../lib/i18n";
+import { LANGS, useI18n, type Lang } from "../lib/i18n";
 
 export default function LangSwitcher() {
   const { lang, setLang } = useI18n();
 
   return (
-    <div className="flex items-center rounded-2xl border border-slate-200 bg-white p-1 dark:border-slate-800 dark:bg-slate-950">
-      <button
-        type="button"
-        onClick={() => setLang("uz")}
-        className={`rounded-xl px-4 py-2 text-[13px] font-bold transition ${
-          lang === "uz"
-            ? "bg-slate-950 text-white dark:bg-white dark:text-slate-950"
-            : "text-slate-500 hover:text-slate-950 dark:text-slate-400 dark:hover:text-white"
-        }`}
-      >
-        UZ
-      </button>
-      <button
-        type="button"
-        onClick={() => setLang("ru")}
-        className={`rounded-xl px-4 py-2 text-[13px] font-bold transition ${
-          lang === "ru"
-            ? "bg-slate-950 text-white dark:bg-white dark:text-slate-950"
-            : "text-slate-500 hover:text-slate-950 dark:text-slate-400 dark:hover:text-white"
-        }`}
-      >
-        RU
-      </button>
+    <div className="flex h-11 items-center rounded-[16px] border border-[var(--line)] bg-[var(--card)] p-1 shadow-[0_10px_26px_rgba(15,23,42,0.035)] transition">
+      {LANGS.map((item) => (
+        <button
+          key={item.value}
+          type="button"
+          onClick={() => setLang(item.value as Lang)}
+          className={`h-9 rounded-[13px] px-3 text-[12px] font-normal transition ${
+            lang === item.value
+              ? "bg-[var(--blue)] text-white shadow-[0_10px_20px_rgba(49,94,251,0.16)]"
+              : "text-[var(--muted)] hover:bg-[var(--blue-soft)] hover:text-[var(--blue)]"
+          }`}
+        >
+          {item.label}
+        </button>
+      ))}
     </div>
   );
 }

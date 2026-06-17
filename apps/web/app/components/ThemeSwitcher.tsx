@@ -13,9 +13,9 @@ export default function ThemeSwitcher() {
     <button
       type="button"
       onClick={toggleTheme}
-      className="flex h-12 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 text-[14px] font-bold text-slate-950 shadow-sm transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:text-white dark:hover:bg-slate-900"
+      className="flex h-11 items-center gap-2 rounded-[16px] border border-[var(--line)] bg-[var(--card)] px-4 text-[13px] font-normal text-[var(--text)] shadow-[0_10px_26px_rgba(15,23,42,0.035)] transition hover:bg-[var(--blue-soft)] hover:text-[var(--blue)]"
     >
-      {dark ? <Sun size={17} /> : <Moon size={17} />}
+      {dark ? <Sun size={16} strokeWidth={1.8} /> : <Moon size={16} strokeWidth={1.8} />}
       {dark ? t("light") : t("dark")}
     </button>
   );
