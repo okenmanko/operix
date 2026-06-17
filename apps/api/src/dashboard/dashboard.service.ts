@@ -34,8 +34,9 @@ export class DashboardService {
 
     const todayKey = new Date().toISOString().slice(0, 10);
     const now = new Date();
+    const debtorGroups = new Map<string, any>();
 
-    const debtCards = debts.map((debt: any) => {
+    for (const debt of debts as any[]) {
       const currency = this.normalizeCurrency(debt.currency);
       const amount = this.safeNumber(debt.amount);
       const paid = (debt.payments || [])
@@ -58,21 +59,24 @@ export class DashboardService {
       else activeDebts += 1;
       if (isOverdue) overdueDebts += 1;
 
-      return {
-        id: debt.id,
-        clientId: debt.clientId,
-        clientName: debt.client?.fullName || '',
-        fullName: debt.client?.fullName || '',
-        phone: debt.client?.phone || '',
-        amount,
-        total: remaining,
-        currency,
-        paid,
-        remaining,
-        status: isClosed ? 'CLOSED' : debt.status || 'ACTIVE',
-        dueDate: debt.dueDate,
-      };
-    });
+      if (remaining > 0) {
+        const clientId = debt.clientId || debt.client?.id || debt.id;
+        const key = `${clientId}:${currency}`;
+        const old = debtorGroups.get(key) || {
+          id: key,
+          clientId,
+          fullName: debt.client?.fullName || '',
+          clientName: debt.client?.fullName || '',
+          phone: debt.client?.phone || '',
+          total: 0,
+          remaining: 0,
+          currency,
+        };
+        old.total += remaining;
+        old.remaining += remaining;
+        debtorGroups.set(key, old);
+      }
+    }
 
     const todayPaymentsUZS = payments
       .filter((payment: any) => new Date(payment.createdAt).toISOString().slice(0, 10) === todayKey)
@@ -84,24 +88,17 @@ export class DashboardService {
       .filter((payment: any) => this.normalizeCurrency(payment.currency) === 'USD')
       .reduce((sum: number, payment: any) => sum + this.safeNumber(payment.amount), 0);
 
-    const topDebtors = debtCards
-      .filter((debt) => debt.remaining > 0)
+    const topDebtors = [...debtorGroups.values()]
       .sort((a, b) => b.remaining - a.remaining)
-      .slice(0, 20)
-      .map((debt) => ({
-        id: debt.id,
-        clientId: debt.clientId,
-        fullName: debt.fullName,
-        clientName: debt.clientName,
-        phone: debt.phone,
-        total: debt.remaining,
-        remaining: debt.remaining,
-        currency: debt.currency,
-      }));
+      .slice(0, 50);
+
+    const debtorsCount = new Set([...debtorGroups.values()].map((x) => x.clientId)).size;
 
     return {
       clientsCount,
-      debtsCount: debts.length,
+      debtorsCount,
+      debtsCount: debtorsCount,
+      debtRowsCount: debts.length,
       paymentsCount: payments.length,
       activeDebts,
       closedDebts,
@@ -120,8 +117,8 @@ export class DashboardService {
       todayPaymentsUSD,
 
       topDebtors,
-      topDebtorsUZS: topDebtors.filter((item) => item.currency === 'UZS').slice(0, 10),
-      topDebtorsUSD: topDebtors.filter((item) => item.currency === 'USD').slice(0, 10),
+      topDebtorsUZS: topDebtors.filter((item) => item.currency === 'UZS').slice(0, 20),
+      topDebtorsUSD: topDebtors.filter((item) => item.currency === 'USD').slice(0, 20),
       recentPayments: payments.slice(0, 10),
     };
   }
