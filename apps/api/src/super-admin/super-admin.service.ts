@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
 
@@ -70,6 +70,10 @@ export class SuperAdminService {
   }
 
   async createUser(body: any) {
+    if (!body.companyId) throw new BadRequestException('Kompaniya tanlanmagan');
+    if (!body.fullName) throw new BadRequestException('Ism kiritilmagan');
+    if (!body.phone) throw new BadRequestException('Telefon kiritilmagan');
+
     const password = await bcrypt.hash(body.password || '123456', 10);
 
     return this.prisma.user.create({
@@ -81,17 +85,43 @@ export class SuperAdminService {
         companyId: body.companyId,
         isActive: true,
       } as any,
+      include: { company: { select: { id: true, name: true } } },
     });
   }
 
   async updateUser(id: string, body: any) {
+    const exists = await this.prisma.user.findUnique({ where: { id } });
+    if (!exists) throw new NotFoundException('User topilmadi');
+
+    const data: any = {};
+
+    if (body.fullName !== undefined) data.fullName = String(body.fullName || '').trim();
+    if (body.phone !== undefined) data.phone = String(body.phone || '').trim();
+    if (body.role !== undefined) data.role = body.role;
+    if (body.companyId !== undefined) data.companyId = body.companyId;
+    if (body.isActive !== undefined) data.isActive = Boolean(body.isActive);
+
+    if (body.password !== undefined && String(body.password).trim()) {
+      data.password = await bcrypt.hash(String(body.password).trim(), 10);
+    }
+
+    if (data.fullName === '') throw new BadRequestException('Ism bo‘sh bo‘lmasin');
+    if (data.phone === '') throw new BadRequestException('Telefon bo‘sh bo‘lmasin');
+
     return this.prisma.user.update({
       where: { id },
-      data: {
-        ...(body.role !== undefined ? { role: body.role } : {}),
-        ...(body.isActive !== undefined ? { isActive: Boolean(body.isActive) } : {}),
-      } as any,
+      data,
+      include: { company: { select: { id: true, name: true } } },
     });
+  }
+
+  async deleteUser(id: string) {
+    const exists = await this.prisma.user.findUnique({ where: { id } });
+    if (!exists) throw new NotFoundException('User topilmadi');
+
+    await this.prisma.user.delete({ where: { id } });
+
+    return { ok: true, id };
   }
 
   async payments() {
