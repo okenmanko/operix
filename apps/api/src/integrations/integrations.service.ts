@@ -19,7 +19,7 @@ export class IntegrationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly inventoryService: InventoryService,
-  ) {}
+  ) { }
 
   async getSettings(companyId: string) {
     const settings = await this.getRawSettings(companyId);
@@ -57,7 +57,7 @@ export class IntegrationsService {
     return historyStore.get(companyId) || [];
   }
 
-    async debugMoyskladCounterparty(companyId: string) {
+  async debugMoyskladCounterparty(companyId: string) {
     const settings = await this.getRawSettings(companyId);
     return this.moyskladFetch(
       settings,
@@ -72,7 +72,7 @@ export class IntegrationsService {
       '/report/stock/all?limit=3&stockByStore=true',
     );
   }
-  
+
   async testMoysklad(companyId: string) {
     try {
       const settings = await this.getRawSettings(companyId);
@@ -139,7 +139,7 @@ export class IntegrationsService {
       // 3) Agar reportda valyuta bo'yicha ma'lumot to'liq kelmasa, counterparty ichidagi balance/attributesdan ham olamiz.
       const [counterparties, reportRows] = await Promise.all([
         this.withTimeout(
-          this.moyskladFetchAll(settings, '/entity/counterparty', 200, 300),
+          this.moyskladFetchAll(settings, '/entity/counterparty?expand=accounts', 200, 300),
           120_000,
           'MoySklad kontragentlar 120 sekunddan oshib ketdi.',
         ),
@@ -730,21 +730,45 @@ export class IntegrationsService {
   }
 
   private fromMoyskladMinorMoney(value: any, currency = 'UZS') {
-    const n = Math.abs(this.extractMoneyAmount(value));
+
+    let n = Math.abs(this.extractMoneyAmount(value));
+
     if (!Number.isFinite(n)) return 0;
 
     const cur = this.normalizeCurrency(currency);
 
-    // Digi World qoidasiga mos:
-    // USD'da 45.000 / 45 000 ko'rinsa bu 45$ degani. Ortiqcha 000 lar kesiladi.
+    // USD
+
     if (cur === 'USD') {
-      if (n >= 1000 && Number.isInteger(n) && n % 1000 === 0) return n / 1000;
-      if (n >= 100000 && Number.isInteger(n) && n % 100 === 0) return n / 100;
+
+      // 118000 -> 1180
+
+      if (n > 10000 && n % 100 === 0) {
+        n = n / 100;
+      }
+
+      // 45000 -> 45
+
+      if (n > 1000 && n % 1000 === 0 && n < 100000) {
+        n = n / 1000;
+      }
+
       return n;
     }
 
-    // UZS'da 45 000 000 haqiqiy so'm. Faqat juda katta minor-unit qiymatlar /100 qilinadi.
-    if (n >= 10000000000 && Number.isInteger(n) && n % 100 === 0) return n / 100;
+    // UZS
+
+    if (cur === 'UZS') {
+
+      // faqat juda katta minor unitlarni /100 qilamiz
+
+      if (n >= 10000000000 && n % 100 === 0) {
+        n = n / 100;
+      }
+
+      return n;
+    }
+
     return n;
   }
 
