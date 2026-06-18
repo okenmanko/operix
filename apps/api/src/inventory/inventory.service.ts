@@ -1,5 +1,5 @@
-import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
+import { Injectable } from "@nestjs/common";
+import { PrismaService } from "../prisma/prisma.service";
 
 const memoryProducts = new Map<string, any[]>();
 const memoryWarehouses = new Map<string, any[]>();
@@ -14,17 +14,25 @@ type StockRow = {
   warehouseExternalId?: string | null;
   quantity: number;
   price: number;
+  costPrice: number;
+  salePrice: number;
   currency: string;
+  reserve?: number;
+  inTransit?: number;
+  available?: number;
+  daysOnStock?: number;
 };
 
 @Injectable()
 export class InventoryService {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(private readonly prisma: PrismaService) {}
 
   async products(companyId: string) {
     const products = await this.rawProducts(companyId);
     const stockRows = await this.rawStock(companyId);
-    return products.map((product) => this.attachProductStock(product, stockRows));
+    return products.map((product) =>
+      this.attachProductStock(product, stockRows),
+    );
   }
 
   async warehouses(companyId: string) {
@@ -32,23 +40,42 @@ export class InventoryService {
     const stockRows = await this.rawStock(companyId);
 
     return warehouses.map((warehouse) => {
-      const rows = stockRows.filter((row) => row.warehouseId === warehouse.id || this.sameWarehouse(row.warehouseName, warehouse.name));
-      const productCount = new Set(rows.map((row) => row.productId || this.stockProductKey(row))).size;
-      const totalQuantity = rows.reduce((sum, row) => sum + this.safeNumber(row.quantity), 0);
-      const totalValueUZS = rows
-        .filter((row) => this.normalizeCurrency(row.currency) === 'UZS')
-        .reduce((sum, row) => sum + this.safeNumber(row.quantity) * this.safeNumber(row.price), 0);
-      const totalValueUSD = rows
-        .filter((row) => this.normalizeCurrency(row.currency) === 'USD')
-        .reduce((sum, row) => sum + this.safeNumber(row.quantity) * this.safeNumber(row.price), 0);
+      const rows = stockRows.filter(
+        (row) =>
+          row.warehouseId === warehouse.id ||
+          this.sameWarehouse(row.warehouseName, warehouse.name),
+      );
+      const productCount = new Set(
+        rows.map((row) => row.productId || this.stockProductKey(row)),
+      ).size;
+      const totalQuantity = rows.reduce(
+        (sum, row) => sum + this.safeNumber(row.quantity),
+        0,
+      );
+      const totalCostValueUSD = rows.reduce(
+        (sum, row) =>
+          sum +
+          this.safeNumber(row.quantity) *
+            this.safeNumber(row.costPrice || row.price),
+        0,
+      );
+      const totalSaleValueUSD = rows.reduce(
+        (sum, row) =>
+          sum +
+          this.safeNumber(row.quantity) *
+            this.safeNumber(row.salePrice || row.price),
+        0,
+      );
 
       return {
         ...warehouse,
         productCount,
         totalQuantity,
-        totalValue: totalValueUSD || totalValueUZS,
-        totalValueUZS: this.round2(totalValueUZS),
-        totalValueUSD: this.round2(totalValueUSD),
+        totalValue: this.round2(totalSaleValueUSD),
+        totalValueUSD: this.round2(totalSaleValueUSD),
+        totalValueUZS: 0,
+        totalCostValueUSD: this.round2(totalCostValueUSD),
+        totalSaleValueUSD: this.round2(totalSaleValueUSD),
       };
     });
   }
@@ -60,54 +87,149 @@ export class InventoryService {
     return {
       products: products.length,
       warehouses: warehouses.length,
-      totalQuantity: products.reduce((sum, product) => sum + this.safeNumber(product.stock), 0),
-      totalValueUZS: this.round2(products.reduce((sum, product) => sum + this.safeNumber(product.stockValueUZS), 0)),
-      totalValueUSD: this.round2(products.reduce((sum, product) => sum + this.safeNumber(product.stockValueUSD), 0)),
-      totalValue: this.round2(products.reduce((sum, product) => sum + this.safeNumber(product.stockValueUSD || product.stockValueUZS), 0)),
-      topWarehouses: warehouses.slice().sort((a, b) => this.safeNumber(b.totalQuantity) - this.safeNumber(a.totalQuantity)).slice(0, 10),
+      totalQuantity: products.reduce(
+        (sum, product) => sum + this.safeNumber(product.stock),
+        0,
+      ),
+      totalValueUZS: 0,
+      totalValueUSD: this.round2(
+        products.reduce(
+          (sum, product) =>
+            sum +
+            this.safeNumber(
+              product.stockSaleValueUSD ||
+                product.stockValueUSD ||
+                product.stockValue,
+            ),
+          0,
+        ),
+      ),
+      totalValue: this.round2(
+        products.reduce(
+          (sum, product) =>
+            sum +
+            this.safeNumber(
+              product.stockSaleValueUSD ||
+                product.stockValueUSD ||
+                product.stockValue,
+            ),
+          0,
+        ),
+      ),
+      totalCostValueUSD: this.round2(
+        products.reduce(
+          (sum, product) => sum + this.safeNumber(product.stockCostValueUSD),
+          0,
+        ),
+      ),
+      totalSaleValueUSD: this.round2(
+        products.reduce(
+          (sum, product) =>
+            sum +
+            this.safeNumber(
+              product.stockSaleValueUSD ||
+                product.stockValueUSD ||
+                product.stockValue,
+            ),
+          0,
+        ),
+      ),
+      topWarehouses: warehouses
+        .slice()
+        .sort(
+          (a, b) =>
+            this.safeNumber(b.totalQuantity) - this.safeNumber(a.totalQuantity),
+        )
+        .slice(0, 10),
     };
   }
 
   async warehouseDetail(companyId: string, id: string) {
     const warehouses = await this.warehouses(companyId);
-    const warehouse = warehouses.find((item) => item.id === id || item.name === id);
-    if (!warehouse) return { warehouse: null, items: [], totalQuantity: 0, totalValue: 0, totalValueUZS: 0, totalValueUSD: 0 };
+    const warehouse = warehouses.find(
+      (item) => item.id === id || item.name === id,
+    );
+    if (!warehouse)
+      return {
+        warehouse: null,
+        items: [],
+        totalQuantity: 0,
+        totalValue: 0,
+        totalValueUZS: 0,
+        totalValueUSD: 0,
+      };
 
     const products = await this.rawProducts(companyId);
     const stockRows = await this.rawStock(companyId);
-    const rows = stockRows.filter((row) => row.warehouseId === warehouse.id || this.sameWarehouse(row.warehouseName, warehouse.name));
+    const rows = stockRows.filter(
+      (row) =>
+        row.warehouseId === warehouse.id ||
+        this.sameWarehouse(row.warehouseName, warehouse.name),
+    );
 
     const items = rows
       .map((row) => {
-        const product = products.find((p) => p.id === row.productId || this.sameProduct(row, p));
-        const currency = this.normalizeCurrency(row.currency || product?.currency || 'UZS');
-        const price = this.safeNumber(row.price || product?.salePrice || product?.price || 0);
+        const product = products.find(
+          (p) => p.id === row.productId || this.sameProduct(row, p),
+        );
+        const currency = "USD";
+        const costPrice = this.safeNumber(
+          row.costPrice ||
+            product?.costPrice ||
+            row.price ||
+            product?.salePrice ||
+            product?.price ||
+            0,
+        );
+        const salePrice = this.safeNumber(
+          row.salePrice ||
+            row.price ||
+            product?.salePrice ||
+            product?.price ||
+            0,
+        );
         const quantity = this.safeNumber(row.quantity);
         return {
-          productId: product?.id || row.productId || '',
-          name: product?.name || row.productName || 'Nomsiz mahsulot',
-          sku: product?.sku || row.sku || '',
-          barcode: product?.barcode || row.barcode || '',
-          category: product?.category || '',
+          productId: product?.id || row.productId || "",
+          name: product?.name || row.productName || "Nomsiz mahsulot",
+          sku: product?.sku || row.sku || "",
+          barcode: product?.barcode || row.barcode || "",
+          category: product?.category || "",
           quantity,
-          price,
-          value: this.round2(quantity * price),
+          reserve: this.safeNumber(row.reserve),
+          inTransit: this.safeNumber(row.inTransit),
+          available: this.safeNumber(row.available || quantity),
+          daysOnStock: this.safeNumber(row.daysOnStock),
+          costPrice,
+          salePrice,
+          price: salePrice,
+          costValue: this.round2(quantity * costPrice),
+          saleValue: this.round2(quantity * salePrice),
+          value: this.round2(quantity * salePrice),
           currency,
         };
       })
       .filter((item) => item.quantity !== 0)
       .sort((a, b) => b.value - a.value);
 
-    const totalValueUZS = items.filter((item) => item.currency === 'UZS').reduce((sum, item) => sum + item.value, 0);
-    const totalValueUSD = items.filter((item) => item.currency === 'USD').reduce((sum, item) => sum + item.value, 0);
+    const totalCostValueUSD = items.reduce(
+      (sum, item) => sum + this.safeNumber(item.costValue),
+      0,
+    );
+    const totalSaleValueUSD = items.reduce(
+      (sum, item) => sum + this.safeNumber(item.saleValue || item.value),
+      0,
+    );
 
     return {
       warehouse,
       items,
       totalQuantity: items.reduce((sum, item) => sum + item.quantity, 0),
-      totalValue: this.round2(totalValueUSD || totalValueUZS),
-      totalValueUZS: this.round2(totalValueUZS),
-      totalValueUSD: this.round2(totalValueUSD),
+      totalValue: this.round2(totalSaleValueUSD),
+      totalValueUZS: 0,
+      totalValueUSD: this.round2(totalSaleValueUSD),
+      totalCostValueUSD: this.round2(totalCostValueUSD),
+      totalSaleValueUSD: this.round2(totalSaleValueUSD),
     };
   }
 
@@ -117,7 +239,12 @@ export class InventoryService {
     if (prismaAny.product?.create) return prismaAny.product.create({ data });
 
     const list = memoryProducts.get(companyId) || [];
-    const item = { id: `product_${Date.now()}_${Math.random().toString(16).slice(2)}`, ...data, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    const item = {
+      id: `product_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+      ...data,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
     list.unshift(item);
     memoryProducts.set(companyId, list);
     return item;
@@ -126,10 +253,16 @@ export class InventoryService {
   async createWarehouse(companyId: string, body: any) {
     const prismaAny = this.prisma as any;
     const data = this.toWarehouseData(companyId, body);
-    if (prismaAny.warehouse?.create) return prismaAny.warehouse.create({ data });
+    if (prismaAny.warehouse?.create)
+      return prismaAny.warehouse.create({ data });
 
     const list = memoryWarehouses.get(companyId) || [];
-    const item = { id: `warehouse_${Date.now()}_${Math.random().toString(16).slice(2)}`, ...data, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    const item = {
+      id: `warehouse_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+      ...data,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
     list.unshift(item);
     memoryWarehouses.set(companyId, list);
     return item;
@@ -137,92 +270,156 @@ export class InventoryService {
 
   async upsertProductFromMoysklad(companyId: string, item: any) {
     const prismaAny = this.prisma as any;
-    const name = String(item?.name || '').trim();
-    if (!name) return { action: 'skipped', product: null };
+    const name = String(item?.name || "").trim();
+    if (!name) return { action: "skipped", product: null };
 
     const externalId = this.extractExternalId(item);
-    const sku = String(item?.article || item?.code || '').trim();
+    const sku = String(item?.article || item?.code || "").trim();
     const barcode = this.pickBarcode(item);
-    const currency = this.pickCurrency(item) || 'UZS';
+    const currency = "USD";
 
     const data = this.toProductData(companyId, {
       externalId,
       name,
       sku,
       barcode,
-      model: item?.code || '',
-      category: String(item?.pathName || item?.productFolder?.name || '').trim(),
-      description: [item?.description || '', externalId ? `MoySklad ID: ${externalId}` : ''].filter(Boolean).join('\n'),
+      model: item?.code || "",
+      category: String(
+        item?.pathName || item?.productFolder?.name || "",
+      ).trim(),
+      description: [
+        item?.description || "",
+        externalId ? `MoySklad ID: ${externalId}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
       costPrice: this.pickMoyskladBuyPrice(item),
       salePrice: this.pickMoyskladPrice(item),
       currency,
       isActive: true,
     });
 
-    if (prismaAny.product?.findFirst && prismaAny.product?.update && prismaAny.product?.create) {
+    if (
+      prismaAny.product?.findFirst &&
+      prismaAny.product?.update &&
+      prismaAny.product?.create
+    ) {
       const existing =
-        (externalId ? await prismaAny.product.findFirst({ where: { companyId, externalId } }) : null) ||
-        (sku ? await prismaAny.product.findFirst({ where: { companyId, sku } }) : null) ||
-        (barcode ? await prismaAny.product.findFirst({ where: { companyId, barcode } }) : null) ||
+        (externalId
+          ? await prismaAny.product.findFirst({
+              where: { companyId, externalId },
+            })
+          : null) ||
+        (sku
+          ? await prismaAny.product.findFirst({ where: { companyId, sku } })
+          : null) ||
+        (barcode
+          ? await prismaAny.product.findFirst({ where: { companyId, barcode } })
+          : null) ||
         (await prismaAny.product.findFirst({ where: { companyId, name } }));
 
       if (existing) {
-        const product = await prismaAny.product.update({ where: { id: existing.id }, data });
-        return { action: 'updated', product };
+        const product = await prismaAny.product.update({
+          where: { id: existing.id },
+          data,
+        });
+        return { action: "updated", product };
       }
 
       const product = await prismaAny.product.create({ data });
-      return { action: 'created', product };
+      return { action: "created", product };
     }
 
     const list = memoryProducts.get(companyId) || [];
-    const index = list.findIndex((p) => (externalId && p.externalId === externalId) || (sku && p.sku === sku) || (barcode && p.barcode === barcode) || p.name === name);
+    const index = list.findIndex(
+      (p) =>
+        (externalId && p.externalId === externalId) ||
+        (sku && p.sku === sku) ||
+        (barcode && p.barcode === barcode) ||
+        p.name === name,
+    );
     if (index >= 0) {
-      list[index] = { ...list[index], ...data, updatedAt: new Date().toISOString() };
+      list[index] = {
+        ...list[index],
+        ...data,
+        updatedAt: new Date().toISOString(),
+      };
       memoryProducts.set(companyId, list);
-      return { action: 'updated', product: list[index] };
+      return { action: "updated", product: list[index] };
     }
 
-    const product = { id: `product_${Date.now()}_${Math.random().toString(16).slice(2)}`, ...data, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    const product = {
+      id: `product_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+      ...data,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
     list.unshift(product);
     memoryProducts.set(companyId, list);
-    return { action: 'created', product };
+    return { action: "created", product };
   }
 
   async upsertWarehouseFromMoysklad(companyId: string, item: any) {
     const prismaAny = this.prisma as any;
-    const name = String(item?.name || '').trim();
-    if (!name) return { action: 'skipped', warehouse: null };
+    const name = String(item?.name || "").trim();
+    if (!name) return { action: "skipped", warehouse: null };
 
     const externalId = this.extractExternalId(item);
-    const data = this.toWarehouseData(companyId, { externalId, name, address: item?.address || '', isActive: true });
+    const data = this.toWarehouseData(companyId, {
+      externalId,
+      name,
+      address: item?.address || "",
+      isActive: true,
+    });
 
-    if (prismaAny.warehouse?.findFirst && prismaAny.warehouse?.update && prismaAny.warehouse?.create) {
+    if (
+      prismaAny.warehouse?.findFirst &&
+      prismaAny.warehouse?.update &&
+      prismaAny.warehouse?.create
+    ) {
       const existing =
-        (externalId ? await prismaAny.warehouse.findFirst({ where: { companyId, externalId } }) : null) ||
+        (externalId
+          ? await prismaAny.warehouse.findFirst({
+              where: { companyId, externalId },
+            })
+          : null) ||
         (await prismaAny.warehouse.findFirst({ where: { companyId, name } }));
 
       if (existing) {
-        const warehouse = await prismaAny.warehouse.update({ where: { id: existing.id }, data });
-        return { action: 'updated', warehouse };
+        const warehouse = await prismaAny.warehouse.update({
+          where: { id: existing.id },
+          data,
+        });
+        return { action: "updated", warehouse };
       }
 
       const warehouse = await prismaAny.warehouse.create({ data });
-      return { action: 'created', warehouse };
+      return { action: "created", warehouse };
     }
 
     const list = memoryWarehouses.get(companyId) || [];
-    const index = list.findIndex((w) => (externalId && w.externalId === externalId) || w.name === name);
+    const index = list.findIndex(
+      (w) => (externalId && w.externalId === externalId) || w.name === name,
+    );
     if (index >= 0) {
-      list[index] = { ...list[index], ...data, updatedAt: new Date().toISOString() };
+      list[index] = {
+        ...list[index],
+        ...data,
+        updatedAt: new Date().toISOString(),
+      };
       memoryWarehouses.set(companyId, list);
-      return { action: 'updated', warehouse: list[index] };
+      return { action: "updated", warehouse: list[index] };
     }
 
-    const warehouse = { id: `warehouse_${Date.now()}_${Math.random().toString(16).slice(2)}`, ...data, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    const warehouse = {
+      id: `warehouse_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+      ...data,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
     list.unshift(warehouse);
     memoryWarehouses.set(companyId, list);
-    return { action: 'created', warehouse };
+    return { action: "created", warehouse };
   }
 
   async replaceStockFromMoysklad(companyId: string, rows: any[]) {
@@ -232,20 +429,51 @@ export class InventoryService {
     const warehouseMap = await this.buildWarehouseMap(companyId);
 
     for (const item of rows || []) {
-      const baseProduct = item?.assortment || item?.product || item?.good || item;
-      const productName = String(item?.name || baseProduct?.name || '').trim();
-      const sku = String(item?.article || item?.code || baseProduct?.article || baseProduct?.code || '').trim();
-      const barcode = this.pickBarcode(item) || this.pickBarcode(baseProduct || {});
+      const baseProduct =
+        item?.assortment || item?.product || item?.good || item;
+      const productName = String(item?.name || baseProduct?.name || "").trim();
+      const sku = String(
+        item?.article ||
+          item?.code ||
+          baseProduct?.article ||
+          baseProduct?.code ||
+          "",
+      ).trim();
+      const barcode =
+        this.pickBarcode(item) || this.pickBarcode(baseProduct || {});
       const productExternalId = this.extractExternalId(baseProduct || item);
-      const currency = this.pickCurrency(baseProduct) || this.pickCurrency(item) || 'UZS';
-      const price = this.pickMoyskladPrice(baseProduct) || this.normalizePrice(item?.price ?? item?.salePrice ?? 0, currency);
+      const currency = "USD";
+      const costPrice = this.pickMoyskladCostPrice(item, baseProduct);
+      const salePrice = this.pickMoyskladSalePrice(item, baseProduct);
+      const price = salePrice || costPrice;
 
       const storeRows = this.extractStoreRows(item);
       for (const storeRow of storeRows) {
-        const storeObj = storeRow?.store || storeRow?.warehouse || storeRow?.stockStore || storeRow?.stockByStore || storeRow;
-        const warehouseExternalId = this.extractExternalId(storeObj) || this.extractExternalId(storeRow) || null;
-        const warehouseName = this.resolveWarehouseName(storeObj, storeRow, warehouseMap, warehouseExternalId);
-        const quantity = this.safeNumber(storeRow?.stock ?? storeRow?.quantity ?? storeRow?.count ?? storeRow?.value ?? item?.stock ?? item?.quantity ?? 0);
+        const storeObj =
+          storeRow?.store ||
+          storeRow?.warehouse ||
+          storeRow?.stockStore ||
+          storeRow?.stockByStore ||
+          storeRow;
+        const warehouseExternalId =
+          this.extractExternalId(storeObj) ||
+          this.extractExternalId(storeRow) ||
+          null;
+        const warehouseName = this.resolveWarehouseName(
+          storeObj,
+          storeRow,
+          warehouseMap,
+          warehouseExternalId,
+        );
+        const quantity = this.safeNumber(
+          storeRow?.stock ??
+            storeRow?.quantity ??
+            storeRow?.count ??
+            storeRow?.value ??
+            item?.stock ??
+            item?.quantity ??
+            0,
+        );
 
         if (!productName || !warehouseName || quantity === 0) continue;
         normalizedRows.push({
@@ -257,38 +485,87 @@ export class InventoryService {
           warehouseExternalId: warehouseExternalId || warehouseName,
           quantity,
           price,
+          costPrice,
+          salePrice: salePrice || price,
           currency,
+          reserve: this.safeNumber(storeRow?.reserve ?? item?.reserve ?? 0),
+          inTransit: this.safeNumber(
+            storeRow?.inTransit ??
+              item?.inTransit ??
+              storeRow?.inTransitQuantity ??
+              0,
+          ),
+          available: this.safeNumber(
+            storeRow?.available ?? item?.available ?? quantity,
+          ),
+          daysOnStock: this.safeNumber(
+            storeRow?.daysOnStock ?? item?.daysOnStock ?? item?.stockDays ?? 0,
+          ),
         });
       }
     }
 
     memoryStock.set(companyId, normalizedRows);
 
-    if (prismaAny.inventoryBalance?.deleteMany && prismaAny.inventoryBalance?.upsert) {
+    if (
+      prismaAny.inventoryBalance?.deleteMany &&
+      prismaAny.inventoryBalance?.upsert
+    ) {
       await prismaAny.inventoryBalance.deleteMany({ where: { companyId } });
 
       for (const row of normalizedRows) {
         const product = await this.ensureProductFromStockRow(companyId, row);
-        const warehouse = await this.ensureWarehouseFromStockRow(companyId, row);
+        const warehouse = await this.ensureWarehouseFromStockRow(
+          companyId,
+          row,
+        );
         if (!product?.id || !warehouse?.id) continue;
 
         const externalKey = `${product.id}:${warehouse.id}`;
-        const currency = this.normalizeCurrency(row.currency || product.currency || 'UZS');
-        const price = this.safeNumber(row.price || product.salePrice || 0);
+        const currency = "USD";
+        const price = this.safeNumber(
+          row.salePrice || row.price || product.salePrice || 0,
+        );
 
         await prismaAny.inventoryBalance.upsert({
           where: { companyId_externalKey: { companyId, externalKey } },
-          update: { quantity: row.quantity, price, currency, productId: product.id, warehouseId: warehouse.id },
-          create: { companyId, externalKey, quantity: row.quantity, price, currency, productId: product.id, warehouseId: warehouse.id },
+          update: {
+            quantity: row.quantity,
+            price,
+            currency,
+            productId: product.id,
+            warehouseId: warehouse.id,
+          },
+          create: {
+            companyId,
+            externalKey,
+            quantity: row.quantity,
+            price,
+            currency,
+            productId: product.id,
+            warehouseId: warehouse.id,
+          },
         });
       }
     }
 
     return {
       rows: normalizedRows.length,
-      products: new Set(normalizedRows.map((row) => row.productExternalId || row.sku || row.barcode || row.productName)).size,
-      warehouses: new Set(normalizedRows.map((row) => row.warehouseExternalId || row.warehouseName)).size,
-      totalQuantity: normalizedRows.reduce((sum, row) => sum + this.safeNumber(row.quantity), 0),
+      products: new Set(
+        normalizedRows.map(
+          (row) =>
+            row.productExternalId || row.sku || row.barcode || row.productName,
+        ),
+      ).size,
+      warehouses: new Set(
+        normalizedRows.map(
+          (row) => row.warehouseExternalId || row.warehouseName,
+        ),
+      ).size,
+      totalQuantity: normalizedRows.reduce(
+        (sum, row) => sum + this.safeNumber(row.quantity),
+        0,
+      ),
     };
   }
 
@@ -296,34 +573,62 @@ export class InventoryService {
     const warehouses = await this.rawWarehouses(companyId);
     const map = new Map<string, any>();
     for (const warehouse of warehouses) {
-      if (warehouse.externalId) map.set(String(warehouse.externalId), warehouse);
-      if (warehouse.name) map.set(String(warehouse.name).trim().toLowerCase(), warehouse);
+      if (warehouse.externalId)
+        map.set(String(warehouse.externalId), warehouse);
+      if (warehouse.name)
+        map.set(String(warehouse.name).trim().toLowerCase(), warehouse);
     }
     return map;
   }
 
   private extractStoreRows(item: any) {
-    const candidates = [item?.stockByStore, item?.stockByWarehouse, item?.byStore, item?.stores, item?.storeStock].filter(Array.isArray);
+    const candidates = [
+      item?.stockByStore,
+      item?.stockByWarehouse,
+      item?.byStore,
+      item?.stores,
+      item?.storeStock,
+    ].filter(Array.isArray);
     if (candidates.length) return candidates.flat();
     return [item];
   }
 
-  private resolveWarehouseName(storeObj: any, storeRow: any, warehouseMap: Map<string, any>, externalId?: string | null) {
-    const fromObject = String(storeObj?.name || storeRow?.name || storeRow?.storeName || storeRow?.warehouseName || '').trim();
+  private resolveWarehouseName(
+    storeObj: any,
+    storeRow: any,
+    warehouseMap: Map<string, any>,
+    externalId?: string | null,
+  ) {
+    const fromObject = String(
+      storeObj?.name ||
+        storeRow?.name ||
+        storeRow?.storeName ||
+        storeRow?.warehouseName ||
+        "",
+    ).trim();
     if (fromObject) return fromObject;
-    if (externalId && warehouseMap.get(externalId)?.name) return warehouseMap.get(externalId).name;
-    return 'Umumiy';
+    if (externalId && warehouseMap.get(externalId)?.name)
+      return warehouseMap.get(externalId).name;
+    return "Umumiy";
   }
 
   private async rawProducts(companyId: string) {
     const prismaAny = this.prisma as any;
-    if (prismaAny.product?.findMany) return prismaAny.product.findMany({ where: { companyId }, orderBy: { createdAt: 'desc' } });
+    if (prismaAny.product?.findMany)
+      return prismaAny.product.findMany({
+        where: { companyId },
+        orderBy: { createdAt: "desc" },
+      });
     return memoryProducts.get(companyId) || [];
   }
 
   private async rawWarehouses(companyId: string) {
     const prismaAny = this.prisma as any;
-    if (prismaAny.warehouse?.findMany) return prismaAny.warehouse.findMany({ where: { companyId }, orderBy: { createdAt: 'desc' } });
+    if (prismaAny.warehouse?.findMany)
+      return prismaAny.warehouse.findMany({
+        where: { companyId },
+        orderBy: { createdAt: "desc" },
+      });
     return memoryWarehouses.get(companyId) || [];
   }
 
@@ -333,64 +638,116 @@ export class InventoryService {
       const rows = await prismaAny.inventoryBalance.findMany({
         where: { companyId },
         include: { product: true, warehouse: true },
-        orderBy: { updatedAt: 'desc' },
+        orderBy: { updatedAt: "desc" },
       });
 
       return rows.map((row: any) => ({
         productId: row.productId,
-        productName: row.product?.name || '',
-        sku: row.product?.sku || '',
-        barcode: row.product?.barcode || '',
+        productName: row.product?.name || "",
+        sku: row.product?.sku || "",
+        barcode: row.product?.barcode || "",
         warehouseId: row.warehouseId,
-        warehouseName: row.warehouse?.name || '',
+        warehouseName: row.warehouse?.name || "",
         quantity: row.quantity,
         price: row.price || row.product?.salePrice || 0,
-        currency: this.normalizeCurrency(row.currency || row.product?.currency || 'UZS'),
+        costPrice: row.product?.costPrice || 0,
+        salePrice: row.product?.salePrice || row.price || 0,
+        currency: "USD",
       }));
     }
     return memoryStock.get(companyId) || [];
   }
 
   private attachProductStock(product: any, stockRows: any[]) {
-    const rows = stockRows.filter((row) => row.productId === product.id || this.sameProduct(row, product));
-    const stock = rows.reduce((sum, row) => sum + this.safeNumber(row.quantity), 0);
-    const currency = this.normalizeCurrency(product.currency || rows[0]?.currency || 'UZS');
-    const price = this.safeNumber(product.salePrice || product.price || rows[0]?.price || 0);
-    const stockValue = stock * price;
+    const rows = stockRows.filter(
+      (row) => row.productId === product.id || this.sameProduct(row, product),
+    );
+    const stock = rows.reduce(
+      (sum, row) => sum + this.safeNumber(row.quantity),
+      0,
+    );
+    const currency = "USD";
+    const costPrice = this.safeNumber(
+      product.costPrice || rows[0]?.costPrice || 0,
+    );
+    const salePrice = this.safeNumber(
+      product.salePrice ||
+        product.price ||
+        rows[0]?.salePrice ||
+        rows[0]?.price ||
+        0,
+    );
+    const stockCostValue = stock * costPrice;
+    const stockSaleValue = stock * salePrice;
 
     return {
       ...product,
       currency,
+      costPrice,
+      salePrice,
+      price: salePrice,
       stock,
-      stockValue: this.round2(stockValue),
-      stockValueUZS: currency === 'UZS' ? this.round2(stockValue) : 0,
-      stockValueUSD: currency === 'USD' ? this.round2(stockValue) : 0,
-      warehouses: rows.map((row) => ({
-        warehouseId: row.warehouseId,
-        warehouseName: row.warehouseName,
-        quantity: this.safeNumber(row.quantity),
-        price: this.safeNumber(row.price || price),
-        currency: this.normalizeCurrency(row.currency || currency),
-        value: this.round2(this.safeNumber(row.quantity) * this.safeNumber(row.price || price)),
-      })),
+      stockValue: this.round2(stockSaleValue),
+      stockValueUZS: 0,
+      stockValueUSD: this.round2(stockSaleValue),
+      stockCostValueUSD: this.round2(stockCostValue),
+      stockSaleValueUSD: this.round2(stockSaleValue),
+      warehouses: rows.map((row) => {
+        const q = this.safeNumber(row.quantity);
+        const rowCost = this.safeNumber(row.costPrice || costPrice);
+        const rowSale = this.safeNumber(
+          row.salePrice || row.price || salePrice,
+        );
+        return {
+          warehouseId: row.warehouseId,
+          warehouseName: row.warehouseName,
+          quantity: q,
+          reserve: this.safeNumber(row.reserve),
+          inTransit: this.safeNumber(row.inTransit),
+          available: this.safeNumber(row.available || q),
+          daysOnStock: this.safeNumber(row.daysOnStock),
+          costPrice: rowCost,
+          salePrice: rowSale,
+          price: rowSale,
+          currency,
+          costValue: this.round2(q * rowCost),
+          saleValue: this.round2(q * rowSale),
+          value: this.round2(q * rowSale),
+        };
+      }),
     };
   }
 
   private async ensureProductFromStockRow(companyId: string, row: StockRow) {
     const prismaAny = this.prisma as any;
     const existing =
-      (row.productExternalId ? await prismaAny.product.findFirst({ where: { companyId, externalId: row.productExternalId } }) : null) ||
-      (row.sku ? await prismaAny.product.findFirst({ where: { companyId, sku: row.sku } }) : null) ||
-      (row.barcode ? await prismaAny.product.findFirst({ where: { companyId, barcode: row.barcode } }) : null) ||
-      await prismaAny.product.findFirst({ where: { companyId, name: row.productName } });
+      (row.productExternalId
+        ? await prismaAny.product.findFirst({
+            where: { companyId, externalId: row.productExternalId },
+          })
+        : null) ||
+      (row.sku
+        ? await prismaAny.product.findFirst({
+            where: { companyId, sku: row.sku },
+          })
+        : null) ||
+      (row.barcode
+        ? await prismaAny.product.findFirst({
+            where: { companyId, barcode: row.barcode },
+          })
+        : null) ||
+      (await prismaAny.product.findFirst({
+        where: { companyId, name: row.productName },
+      }));
 
     const data = this.toProductData(companyId, {
       externalId: row.productExternalId || null,
       name: row.productName,
       sku: row.sku,
       barcode: row.barcode,
-      salePrice: row.price || 0,
-      currency: row.currency || 'UZS',
+      costPrice: row.costPrice || 0,
+      salePrice: row.salePrice || row.price || 0,
+      currency: "USD",
       isActive: true,
     });
 
@@ -403,23 +760,37 @@ export class InventoryService {
 
   private async ensureWarehouseFromStockRow(companyId: string, row: StockRow) {
     const prismaAny = this.prisma as any;
-    const externalId = row.warehouseExternalId && row.warehouseExternalId !== 'general' ? row.warehouseExternalId : null;
+    const externalId =
+      row.warehouseExternalId && row.warehouseExternalId !== "general"
+        ? row.warehouseExternalId
+        : null;
     const existing =
-      (externalId ? await prismaAny.warehouse.findFirst({ where: { companyId, externalId } }) : null) ||
-      await prismaAny.warehouse.findFirst({ where: { companyId, name: row.warehouseName } });
+      (externalId
+        ? await prismaAny.warehouse.findFirst({
+            where: { companyId, externalId },
+          })
+        : null) ||
+      (await prismaAny.warehouse.findFirst({
+        where: { companyId, name: row.warehouseName },
+      }));
 
-    const data = this.toWarehouseData(companyId, { externalId, name: row.warehouseName || 'Umumiy', isActive: true });
+    const data = this.toWarehouseData(companyId, {
+      externalId,
+      name: row.warehouseName || "Umumiy",
+      isActive: true,
+    });
 
-    if (existing) return prismaAny.warehouse.update({ where: { id: existing.id }, data });
+    if (existing)
+      return prismaAny.warehouse.update({ where: { id: existing.id }, data });
     return prismaAny.warehouse.create({ data });
   }
 
   private toProductData(companyId: string, body: any) {
-    const currency = this.normalizeCurrency(body.currency || 'UZS');
+    const currency = "USD";
     return {
       companyId,
       externalId: body.externalId || null,
-      name: String(body.name || body.title || '').trim(),
+      name: String(body.name || body.title || "").trim(),
       sku: body.sku || null,
       barcode: body.barcode || null,
       model: body.model || null,
@@ -433,102 +804,204 @@ export class InventoryService {
   }
 
   private toWarehouseData(companyId: string, body: any) {
-    return { companyId, externalId: body.externalId || null, name: String(body.name || '').trim(), address: body.address || null, isActive: body.isActive === undefined ? true : Boolean(body.isActive) };
+    return {
+      companyId,
+      externalId: body.externalId || null,
+      name: String(body.name || "").trim(),
+      address: body.address || null,
+      isActive: body.isActive === undefined ? true : Boolean(body.isActive),
+    };
   }
 
   private pickMoyskladPrice(item: any) {
-    const salePrices = Array.isArray(item?.salePrices) ? item.salePrices : [];
-    const preferred =
-      salePrices.find((price: any) => this.pickCurrency(price) === 'USD') ||
-      salePrices.find((price: any) => /прод|sale|сот/i.test(String(price?.priceType?.name || price?.name || ''))) ||
-      salePrices[0];
-    const value = preferred?.value ?? preferred?.price ?? item?.price ?? 0;
-    const currency = this.pickCurrency(preferred) || this.pickCurrency(item) || 'UZS';
-    return this.normalizePrice(value, currency);
+    return this.pickMoyskladSalePrice(item, item);
   }
 
   private pickMoyskladBuyPrice(item: any) {
-    const value = item?.buyPrice?.value ?? item?.buyPrice?.price ?? 0;
-    const currency = this.pickCurrency(item?.buyPrice) || this.pickCurrency(item) || 'UZS';
-    return this.normalizePrice(value, currency);
+    return this.pickMoyskladCostPrice(item, item);
   }
 
-  private normalizePrice(value: any, currency = 'UZS') {
+  private pickMoyskladSalePrice(item: any, baseProduct?: any) {
+    const salePrices = Array.isArray(baseProduct?.salePrices)
+      ? baseProduct.salePrices
+      : Array.isArray(item?.salePrices)
+        ? item.salePrices
+        : [];
+    const preferred =
+      salePrices.find((price: any) =>
+        /прод|sale|сот|рознич/i.test(
+          String(price?.priceType?.name || price?.name || ""),
+        ),
+      ) ||
+      salePrices.find((price: any) => price?.value || price?.price) ||
+      null;
+
+    return this.normalizePrice(
+      this.firstMoneyValue(
+        item?.salePrice,
+        item?.salePriceValue,
+        item?.price,
+        item?.sellPrice,
+        item?.saleSum && this.safeNumber(item?.stock)
+          ? this.safeNumber(item.saleSum) /
+              Math.max(1, this.safeNumber(item.stock))
+          : undefined,
+        preferred?.value,
+        preferred?.price,
+        baseProduct?.price,
+      ),
+      "USD",
+    );
+  }
+
+  private pickMoyskladCostPrice(item: any, baseProduct?: any) {
+    return this.normalizePrice(
+      this.firstMoneyValue(
+        item?.costPrice,
+        item?.cost,
+        item?.stockCost,
+        item?.avgCost,
+        item?.averageCost,
+        item?.buyPrice,
+        item?.buyPrice?.value,
+        item?.buyPrice?.price,
+        item?.costSum && this.safeNumber(item?.stock)
+          ? this.safeNumber(item.costSum) /
+              Math.max(1, this.safeNumber(item.stock))
+          : undefined,
+        item?.sumCost && this.safeNumber(item?.stock)
+          ? this.safeNumber(item.sumCost) /
+              Math.max(1, this.safeNumber(item.stock))
+          : undefined,
+        baseProduct?.buyPrice?.value,
+        baseProduct?.buyPrice?.price,
+      ),
+      "USD",
+    );
+  }
+
+  private firstMoneyValue(...values: any[]) {
+    for (const value of values) {
+      const n = this.extractMoneyValue(value);
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+    return 0;
+  }
+
+  private extractMoneyValue(value: any): number {
+    if (value === undefined || value === null || value === "") return 0;
+    if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+    if (typeof value === "string") return this.safeNumber(value);
+    if (typeof value === "object") {
+      return this.firstMoneyValue(
+        value.value,
+        value.price,
+        value.amount,
+        value.sum,
+        value.cost,
+        value.salePrice,
+        value.costPrice,
+      );
+    }
+    return 0;
+  }
+
+  private normalizePrice(value: any, currency = "USD") {
     const n = Math.abs(this.safeNumber(value));
     if (!Number.isFinite(n)) return 0;
-    const cur = this.normalizeCurrency(currency);
 
-    if (cur === 'USD') {
-      if (n >= 100) {
-        return this.round2(n / 100);
-      }
-
-      return this.round2(n);
-    }
-
-    if (n >= 10000000000 && Number.isInteger(n) && n % 100 === 0) return this.round2(n / 100);
+    // Digi World MoySklad narxlari USD'da, API qiymati oxirida 2 ta qo'shimcha 0 bilan keladi.
+    // 45000 -> 450 USD, 75400 -> 754 USD, 118000 -> 1180 USD.
+    if (n >= 100) return this.round2(n / 100);
     return this.round2(n);
   }
 
   private pickBarcode(item: any) {
     const barcodes = item?.barcodes || [];
     const first = Array.isArray(barcodes) ? barcodes[0] : null;
-    return String(first?.ean13 || first?.ean8 || first?.code || item?.barcode || '').trim();
+    return String(
+      first?.ean13 || first?.ean8 || first?.code || item?.barcode || "",
+    ).trim();
   }
 
   private pickCurrency(item: any) {
     const raw = String(
       item?.currency?.isoCode ||
-      item?.currency?.name ||
-      item?.currency?.code ||
-      item?.rate?.currency?.isoCode ||
-      item?.rate?.currency?.name ||
-      item?.salePrices?.[0]?.currency?.isoCode ||
-      item?.salePrices?.[0]?.currency?.name ||
-      item?.priceType?.currency?.isoCode ||
-      item?.priceType?.currency?.name ||
-      item?.name ||
-      '',
+        item?.currency?.name ||
+        item?.currency?.code ||
+        item?.rate?.currency?.isoCode ||
+        item?.rate?.currency?.name ||
+        item?.salePrices?.[0]?.currency?.isoCode ||
+        item?.salePrices?.[0]?.currency?.name ||
+        item?.priceType?.currency?.isoCode ||
+        item?.priceType?.currency?.name ||
+        item?.name ||
+        "",
     ).toUpperCase();
-    if (raw.includes('USD') || raw.includes('$') || raw.includes('ДОЛ')) return 'USD';
-    if (raw.includes('UZS') || raw.includes('СУМ') || raw.includes('SO') || raw.includes('UZS')) return 'UZS';
-    return '';
+    return "USD";
   }
 
   private extractExternalId(item: any) {
-    const href = String(item?.meta?.href || item?.href || '').trim();
-    const fromHref = href ? href.split('/').pop()?.split('?')[0] : '';
-    return String(item?.id || fromHref || '').trim() || null;
+    const href = String(item?.meta?.href || item?.href || "").trim();
+    const fromHref = href ? href.split("/").pop()?.split("?")[0] : "";
+    return String(item?.id || fromHref || "").trim() || null;
   }
 
   private normalizeCurrency(value: any) {
-    const raw = String(value || 'UZS').trim().toUpperCase();
-    return raw.includes('USD') || raw.includes('$') || raw.includes('ДОЛ') ? 'USD' : 'UZS';
+    return "USD";
   }
 
   private sameProduct(row: any, product: any) {
-    const rowSku = String(row.sku || '').trim().toLowerCase();
-    const rowBarcode = String(row.barcode || '').trim().toLowerCase();
-    const rowName = String(row.productName || '').trim().toLowerCase();
-    const productSku = String(product.sku || '').trim().toLowerCase();
-    const productBarcode = String(product.barcode || '').trim().toLowerCase();
-    const productName = String(product.name || '').trim().toLowerCase();
-    return Boolean((rowSku && productSku && rowSku === productSku) || (rowBarcode && productBarcode && rowBarcode === productBarcode) || (rowName && productName && rowName === productName));
+    const rowSku = String(row.sku || "")
+      .trim()
+      .toLowerCase();
+    const rowBarcode = String(row.barcode || "")
+      .trim()
+      .toLowerCase();
+    const rowName = String(row.productName || "")
+      .trim()
+      .toLowerCase();
+    const productSku = String(product.sku || "")
+      .trim()
+      .toLowerCase();
+    const productBarcode = String(product.barcode || "")
+      .trim()
+      .toLowerCase();
+    const productName = String(product.name || "")
+      .trim()
+      .toLowerCase();
+    return Boolean(
+      (rowSku && productSku && rowSku === productSku) ||
+      (rowBarcode && productBarcode && rowBarcode === productBarcode) ||
+      (rowName && productName && rowName === productName),
+    );
   }
 
   private sameWarehouse(a: string, b: string) {
-    return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+    return (
+      String(a || "")
+        .trim()
+        .toLowerCase() ===
+      String(b || "")
+        .trim()
+        .toLowerCase()
+    );
   }
 
   private stockProductKey(row: any) {
-    return `${row.productId || ''}|${row.sku || ''}|${row.barcode || ''}|${row.productName || ''}`;
+    return `${row.productId || ""}|${row.sku || ""}|${row.barcode || ""}|${row.productName || ""}`;
   }
 
   private safeNumber(value: any) {
-    if (value === undefined || value === null || value === '') return 0;
-    if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
-    const clean = String(value).replace(/\s/g, '').replace(/,/g, '.').replace(/[^0-9.\-]/g, '');
-    const normalized = clean.includes('.') ? clean.replace(/\.(?=.*\.)/g, '') : clean;
+    if (value === undefined || value === null || value === "") return 0;
+    if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+    const clean = String(value)
+      .replace(/\s/g, "")
+      .replace(/,/g, ".")
+      .replace(/[^0-9.\-]/g, "");
+    const normalized = clean.includes(".")
+      ? clean.replace(/\.(?=.*\.)/g, "")
+      : clean;
     const n = Number(normalized);
     return Number.isFinite(n) ? n : 0;
   }
