@@ -2,15 +2,6 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaService } from '../prisma/prisma.service';
 import * as XLSX from 'xlsx';
 
-type ImportDebtItem = {
-  fullName: string;
-  phone: string;
-  dueDate: Date | null;
-  usdAmount: number;
-  uzsAmount: number;
-  rowNumber: number;
-};
-
 @Injectable()
 export class DebtsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -28,8 +19,7 @@ export class DebtsService {
         .filter((payment: any) => this.normalizeCurrency(payment.currency) === currency)
         .reduce((sum: number, payment: any) => sum + this.safeNumber(payment.amount), 0);
       const remainingAmount = Math.max(0, this.safeNumber(debt.amount) - paidAmount);
-
-      return { ...debt, currency, paidAmount, remainingAmount };
+      return { ...debt, currency, paidAmount: this.round2(paidAmount), remainingAmount: this.round2(remainingAmount) };
     });
   }
 
@@ -70,7 +60,6 @@ export class DebtsService {
   async remove(companyId: string, id: string) {
     const debt = await this.prisma.debt.findFirst({ where: { id, client: { companyId } } });
     if (!debt) throw new NotFoundException('Qarz topilmadi');
-
     await this.prisma.payment.deleteMany({ where: { debtId: id } });
     await this.prisma.debt.delete({ where: { id } });
     return { ok: true };
@@ -79,29 +68,27 @@ export class DebtsService {
   async importExcel(companyId: string, buffer?: Buffer, mode = 'replace') {
     if (!buffer?.length) throw new BadRequestException('Excel fayl topilmadi');
 
-    const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
+    const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true, raw: false });
     const sheetName = workbook.SheetNames[0];
     const sheet = workbook.Sheets[sheetName];
-    if (!sheet) throw new BadRequestException('Excel varaq topilmadi');
+    if (!sheet) throw new BadRequestException('Excel sheet topilmadi');
 
-    const matrix = XLSX.utils.sheet_to_json<any[]>(sheet, {
-      header: 1,
-      defval: '',
-      blankrows: false,
-      raw: false,
-    });
+    // QARZ13 format:
+    // 4-qator header: A=Nomer, B=Klient, C=Tel, D=Srok, E=Dollar, F=Sum
+    // 5-qator data boshlanadi. 1-3 qator title/bo'sh bo'lishi mumkin.
+    const matrix = XLSX.utils.sheet_to_json<any[]>(sheet, { header: 1, defval: '', raw: false });
+    const rows = matrix.slice(4); // Excel row 5+
 
-    const rows = this.parseQarz13Rows(matrix);
-    if (!rows.length) {
-      throw new BadRequestException('Excel ichidan qarzdor topilmadi. Format: 4-qator header, A=Nomer, B=Klient, C=Tel, D=Srok, E=Dollar, F=Sum.');
-    }
+    if (!rows.length) throw new BadRequestException('Excel bo‘sh');
 
     if (mode === 'replace') {
+      // Excel/1C qarzlar yagona manba: importdan oldin company ichidagi barcha eski qarz/payments tozalanadi.
+      await this.prisma.payment.deleteMany({
+        where: { debt: { client: { companyId } } },
+      });
+
       await this.prisma.debt.deleteMany({
-        where: {
-          client: { companyId },
-          comment: { contains: 'EXCEL_IMPORT' },
-        },
+        where: { client: { companyId } },
       });
     }
 
@@ -113,28 +100,36 @@ export class DebtsService {
     let totalUSD = 0;
 
     for (const row of rows) {
-      if (!row.fullName) {
+      const fullName = this.cleanText(row?.[1]); // B
+      const phone = this.normalizePhone(row?.[2]); // C
+      const dueDate = this.parseExcelDate(row?.[3]); // D
+      const usdAmount = this.safeNumber(row?.[4]); // E
+      const uzsAmount = this.safeNumber(row?.[5]); // F
+
+      if (this.shouldSkipRow(fullName, usdAmount, uzsAmount)) {
         skipped++;
         continue;
       }
 
-      const debtsToCreate: Array<{ amount: number; currency: string }> = [];
-      if (row.usdAmount > 0) debtsToCreate.push({ amount: row.usdAmount, currency: 'USD' });
-      if (row.uzsAmount > 0) debtsToCreate.push({ amount: row.uzsAmount, currency: 'UZS' });
+      const debtsToCreate: Array<{ amount: number; currency: 'UZS' | 'USD' }> = [];
+      if (usdAmount > 0) debtsToCreate.push({ amount: usdAmount, currency: 'USD' });
+      if (uzsAmount > 0) debtsToCreate.push({ amount: uzsAmount, currency: 'UZS' });
 
       if (!debtsToCreate.length) {
         skipped++;
         continue;
       }
 
-      let client = await this.findClient(companyId, row.fullName, row.phone);
+      let client = await this.findClient(companyId, fullName, phone);
+
       if (client) {
         client = await this.prisma.client.update({
           where: { id: client.id },
           data: {
-            fullName: row.fullName,
-            phone: row.phone || client.phone,
-            normalizedPhone: row.phone || client.normalizedPhone,
+            fullName,
+            phone: phone || client.phone,
+            normalizedPhone: phone || client.normalizedPhone,
+            notes: this.mergeNote(client.notes, 'EXCEL_IMPORT_CLIENT'),
           },
         });
         clientsUpdated++;
@@ -142,9 +137,9 @@ export class DebtsService {
         client = await this.prisma.client.create({
           data: {
             companyId,
-            fullName: row.fullName,
-            phone: row.phone || this.noPhone(companyId, row.fullName),
-            normalizedPhone: row.phone || null,
+            fullName,
+            phone: phone || this.noPhone(companyId, fullName),
+            normalizedPhone: phone || null,
             address: null,
             guarantorName: null,
             guarantorPhone: null,
@@ -154,21 +149,21 @@ export class DebtsService {
         clientsCreated++;
       }
 
-      for (const item of debtsToCreate) {
+      for (const debt of debtsToCreate) {
         await this.prisma.debt.create({
           data: {
             clientId: client.id,
-            amount: this.round2(item.amount),
-            currency: item.currency,
-            dueDate: row.dueDate,
+            amount: this.round2(debt.amount),
+            currency: debt.currency,
+            dueDate,
             status: 'ACTIVE',
-            comment: `EXCEL_IMPORT:QARZ13:ROW_${row.rowNumber}`,
+            comment: `EXCEL_IMPORT:QARZ13:${debt.currency}`,
           },
         });
 
         debtsCreated++;
-        if (item.currency === 'USD') totalUSD += item.amount;
-        else totalUZS += item.amount;
+        if (debt.currency === 'USD') totalUSD += debt.amount;
+        else totalUZS += debt.amount;
       }
     }
 
@@ -211,42 +206,26 @@ export class DebtsService {
     return XLSX.write(workbook, { bookType: 'xlsx', type: 'buffer' });
   }
 
-  private parseQarz13Rows(matrix: any[][]): ImportDebtItem[] {
-    const result: ImportDebtItem[] = [];
-
-    // QARZ13 format:
-    // 4-qator: A=Nomer, B=Klient, C=Tel, D=Srok, E=Dollar, F=Sum
-    // Data: 5-qator va pastga
-    for (let i = 4; i < matrix.length; i++) {
-      const row = matrix[i] || [];
-      const fullName = String(row[1] || '').trim();
-      const phone = this.normalizePhone(row[2]);
-      const dueDate = this.parseExcelDate(row[3]);
-      const usdAmount = this.safeNumber(row[4]);
-      const uzsAmount = this.safeNumber(row[5]);
-
-      if (!fullName && !phone && usdAmount <= 0 && uzsAmount <= 0) continue;
-      if (!fullName) continue;
-
-      result.push({
-        fullName,
-        phone,
-        dueDate,
-        usdAmount,
-        uzsAmount,
-        rowNumber: i + 1,
-      });
-    }
-
-    return result;
-  }
-
   private async findClient(companyId: string, fullName: string, normalizedPhone?: string) {
     if (normalizedPhone) {
       const byPhone = await this.prisma.client.findFirst({ where: { companyId, normalizedPhone } });
       if (byPhone) return byPhone;
     }
     return this.prisma.client.findFirst({ where: { companyId, fullName } });
+  }
+
+  private shouldSkipRow(fullName: string, usdAmount: number, uzsAmount: number) {
+    const name = this.cleanText(fullName).toLowerCase();
+    if (!name) return true;
+    if (['итог', 'jami', 'total'].includes(name)) return true;
+    if (name.includes('итог')) return true;
+    if (name === 'неизвестный' || name === 'unknown') return true;
+    if (usdAmount <= 0 && uzsAmount <= 0) return true;
+    return false;
+  }
+
+  private cleanText(value: any) {
+    return String(value ?? '').replace(/\s+/g, ' ').trim();
   }
 
   private normalizePhone(value: any) {
@@ -261,30 +240,6 @@ export class DebtsService {
     return raw.includes('USD') || raw.includes('$') || raw.includes('ДОЛ') ? 'USD' : 'UZS';
   }
 
-  private parseExcelDate(value: any): Date | null {
-    if (!value) return null;
-
-    if (value instanceof Date && !Number.isNaN(value.getTime())) {
-      return value;
-    }
-
-    const raw = String(value).trim();
-    if (!raw) return null;
-
-    const m = raw.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})$/);
-    if (m) {
-      const day = Number(m[1]);
-      const month = Number(m[2]) - 1;
-      let year = Number(m[3]);
-      if (year < 100) year += 2000;
-      const date = new Date(year, month, day);
-      return Number.isNaN(date.getTime()) ? null : date;
-    }
-
-    const parsed = new Date(raw);
-    return Number.isNaN(parsed.getTime()) ? null : parsed;
-  }
-
   private safeNumber(value: any) {
     if (value === undefined || value === null || value === '') return 0;
     if (typeof value === 'number') return Number.isFinite(value) ? Math.abs(value) : 0;
@@ -293,23 +248,42 @@ export class DebtsService {
     if (!raw) return 0;
 
     const clean = raw
-      .replace(/\u00A0/g, ' ')
       .replace(/\s/g, '')
       .replace(/,/g, '.')
       .replace(/[^0-9.\-]/g, '');
 
     if (!clean || clean === '-' || clean === '.') return 0;
-
-    const normalized = clean.includes('.')
-      ? clean.replace(/\.(?=.*\.)/g, '')
-      : clean;
-
+    const normalized = clean.includes('.') ? clean.replace(/\.(?=.*\.)/g, '') : clean;
     const n = Number(normalized);
     return Number.isFinite(n) ? Math.abs(n) : 0;
   }
 
+  private parseExcelDate(value: any): Date | null {
+    if (!value) return null;
+    if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+
+    const text = String(value).trim();
+    const match = text.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+    if (match) {
+      const day = Number(match[1]);
+      const month = Number(match[2]);
+      const year = Number(match[3]);
+      return new Date(Date.UTC(year, month - 1, day));
+    }
+
+    const date = new Date(text);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
   private noPhone(companyId: string, key: string) {
     return `excel-no-phone-${companyId.slice(0, 6)}-${String(key).replace(/[^a-zA-Z0-9]/g, '').slice(0, 18) || Date.now()}`;
+  }
+
+  private mergeNote(oldNote?: string | null, next?: string) {
+    const clean = this.cleanText(next);
+    if (!clean) return oldNote || null;
+    if (String(oldNote || '').includes(clean)) return oldNote || null;
+    return [oldNote, clean].filter(Boolean).join('\n');
   }
 
   private round2(value: number) {
