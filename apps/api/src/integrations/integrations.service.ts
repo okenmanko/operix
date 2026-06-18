@@ -73,7 +73,7 @@ export class IntegrationsService {
   async syncMoyskladClients(companyId: string) {
     try {
       const settings = await this.getRawSettings(companyId);
-      const data = await this.moyskladFetchAll(settings, '/entity/counterparty', 200, 20);
+      const data = await this.moyskladFetchAll(settings, '/entity/counterparty', 200, 300);
       const rows = Array.isArray(data) ? data : [];
       let created = 0;
       let updated = 0;
@@ -118,17 +118,38 @@ export class IntegrationsService {
     try {
       const settings = await this.getRawSettings(companyId);
 
-      // ENG MUHIMI: qarzni counterparty entitydan emas, aynan MoySklad qarzdorlik reportidan olamiz.
-      // Entityda ko'p kontragentlarda balance kelmaydi. Shuning uchun 15 ta chiqib qolgan.
-      const reportRows = await this.withTimeout(
-        this.loadMoyskladCounterpartyReport(settings),
-        90_000,
-        'MoySklad qarzdorlik hisoboti 90 sekunddan oshib ketdi. Keyinroq yana Sync debts bosing yoki MoySklad token/huquqlarini tekshiring.',
-      );
+      // 1) Barcha kontragentlarni entity/counterparty orqali olamiz.
+      // 2) Qarz report/counterparty orqali kelgan bo'lsa, shu bilan birlashtiramiz.
+      // 3) Agar reportda valyuta bo'yicha ma'lumot to'liq kelmasa, counterparty ichidagi balance/attributesdan ham olamiz.
+      const [counterparties, reportRows] = await Promise.all([
+        this.withTimeout(
+          this.moyskladFetchAll(settings, '/entity/counterparty', 200, 300),
+          120_000,
+          'MoySklad kontragentlar 120 sekunddan oshib ketdi.',
+        ),
+        this.withTimeout(
+          this.loadMoyskladCounterpartyReport(settings).catch(() => []),
+          120_000,
+          'MoySklad qarzdorlik report 120 sekunddan oshib ketdi.',
+        ),
+      ]);
+
+      const reportMap = new Map<string, any[]>();
+      for (const row of reportRows as any[]) {
+        const agent = row?.counterparty || row?.agent || row?.customer || row?.organization || row;
+        const extId = this.extractExternalId(agent || row);
+        const name = String(agent?.name || row?.name || row?.counterpartyName || '').trim();
+        for (const key of [extId, name].filter(Boolean)) {
+          const k = String(key);
+          reportMap.set(k, [...(reportMap.get(k) || []), row]);
+        }
+      }
 
       let created = 0;
+      let createdClients = 0;
       let updatedClients = 0;
-      let skipped = 0;
+      let skippedNoName = 0;
+      let skippedNoDebt = 0;
       let totalUZS = 0;
       let totalUSD = 0;
 
@@ -139,21 +160,28 @@ export class IntegrationsService {
         },
       });
 
-      for (const row of reportRows) {
-        const agent = row?.counterparty || row?.agent || row?.customer || row?.organization || row;
-        const name = String(agent?.name || row?.name || row?.counterpartyName || '').trim();
-        const externalId = this.extractExternalId(agent || row);
+      for (const cp of counterparties as any[]) {
+        const name = String(cp?.name || '').trim();
+        const externalId = this.extractExternalId(cp);
+        const phone = this.pickPhone(cp);
 
         if (!name) {
-          skipped++;
+          skippedNoName++;
           continue;
         }
 
-        const phone = this.pickPhone(agent || row);
-        const balances = this.extractReportBalances(row);
+        const reports = [
+          ...(externalId ? reportMap.get(externalId) || [] : []),
+          ...(reportMap.get(name) || []),
+        ];
+
+        const balances = this.mergeDebtBalances([
+          ...reports.flatMap((row: any) => this.extractReportBalances(row)),
+          ...this.extractReportBalances(cp),
+        ]);
 
         if (!balances.length) {
-          skipped++;
+          skippedNoDebt++;
           continue;
         }
 
@@ -166,12 +194,13 @@ export class IntegrationsService {
               fullName: name,
               phone: phone || this.noPhone(companyId, externalId || name),
               normalizedPhone: this.normalizePhone(phone),
-              address: agent?.actualAddress || agent?.legalAddress || row?.actualAddress || row?.legalAddress || null,
+              address: cp?.actualAddress || cp?.legalAddress || null,
               notes: externalId ? `MoySklad ID: ${externalId}` : null,
               guarantorName: null,
               guarantorPhone: null,
             },
           });
+          createdClients++;
         } else {
           client = await this.prisma.client.update({
             where: { id: client.id },
@@ -179,7 +208,7 @@ export class IntegrationsService {
               fullName: name,
               phone: phone || client.phone,
               normalizedPhone: this.normalizePhone(phone || client.phone),
-              address: agent?.actualAddress || agent?.legalAddress || row?.actualAddress || row?.legalAddress || client.address,
+              address: cp?.actualAddress || cp?.legalAddress || client.address,
               notes: this.mergeNote(client.notes, externalId ? `MoySklad ID: ${externalId}` : ''),
             },
           });
@@ -198,7 +227,7 @@ export class IntegrationsService {
               amount,
               currency,
               status: 'ACTIVE',
-              comment: `MOYSKLAD_BALANCE:${externalId || name}:${currency}:RAW_SIGN_${balance.sign || 'UNKNOWN'}`,
+              comment: `MOYSKLAD_BALANCE:${externalId || name}:${currency}:SIGN_${balance.sign || 'UNKNOWN'}`,
             },
           });
 
@@ -208,17 +237,38 @@ export class IntegrationsService {
         }
       }
 
-      const message = `Qarzlar sync: ${created} ta qarz, ${reportRows.length} ta report qator. UZS: ${Math.round(totalUZS).toLocaleString('ru-RU')}, USD: ${totalUSD.toLocaleString('ru-RU')}`;
+      const message =
+        `Qarzlar sync: ${created} ta qarz. ` +
+        `Qarzdor kontragent: ${createdClients + updatedClients}. ` +
+        `UZS: ${this.round2(totalUZS).toLocaleString('ru-RU')}. ` +
+        `USD: ${this.round2(totalUSD).toLocaleString('ru-RU')}. ` +
+        `MS kontragent: ${(counterparties as any[]).length}. Report: ${(reportRows as any[]).length}. Skip debt: ${skippedNoDebt}`;
+
       await this.pushHistory(companyId, 'MOYSKLAD', 'DEBTS', 'SUCCESS', message, {
         created,
+        createdClients,
         updatedClients,
-        skipped,
-        reportRows: reportRows.length,
-        totalUZS,
-        totalUSD,
+        skippedNoName,
+        skippedNoDebt,
+        counterparties: (counterparties as any[]).length,
+        reportRows: (reportRows as any[]).length,
+        totalUZS: this.round2(totalUZS),
+        totalUSD: this.round2(totalUSD),
       });
 
-      return { ok: true, message, created, updatedClients, skipped, reportRows: reportRows.length, totalUZS, totalUSD };
+      return {
+        ok: true,
+        message,
+        created,
+        createdClients,
+        updatedClients,
+        skippedNoName,
+        skippedNoDebt,
+        counterparties: (counterparties as any[]).length,
+        reportRows: (reportRows as any[]).length,
+        totalUZS: this.round2(totalUZS),
+        totalUSD: this.round2(totalUSD),
+      };
     } catch (error: any) {
       return this.fail(companyId, 'MOYSKLAD', 'DEBTS', error?.message || 'Qarzlar sync xatosi');
     }
@@ -227,7 +277,7 @@ export class IntegrationsService {
   async syncMoyskladProducts(companyId: string) {
     try {
       const settings = await this.getRawSettings(companyId);
-      const rows = await this.moyskladFetchAll(settings, '/entity/product', 200, 50);
+      const rows = await this.moyskladFetchAll(settings, '/entity/product', 200, 300);
       let created = 0;
       let updated = 0;
       let skipped = 0;
@@ -250,7 +300,7 @@ export class IntegrationsService {
   async syncMoyskladWarehouses(companyId: string) {
     try {
       const settings = await this.getRawSettings(companyId);
-      const rows = await this.moyskladFetchAll(settings, '/entity/store', 100, 10);
+      const rows = await this.moyskladFetchAll(settings, '/entity/store', 100, 100);
       let created = 0;
       let updated = 0;
       let skipped = 0;
@@ -273,18 +323,22 @@ export class IntegrationsService {
   async syncMoyskladStock(companyId: string) {
     try {
       const settings = await this.getRawSettings(companyId);
-      let data: any;
+
+      // Muhim: oldingi kod faqat 200 qator olardi. Endi barcha sahifalarni olamiz.
+      let rows: any[] = [];
+      let mode = 'stock-all-by-store';
+
       try {
-        data = await this.moyskladFetch(settings, '/report/stock/all?limit=200&stockByStore=true');
-      } catch {
-        data = await this.moyskladFetch(settings, '/report/stock/all?limit=200');
+        rows = await this.moyskladFetchAll(settings, '/report/stock/all?stockByStore=true', 1000, 100);
+      } catch (error: any) {
+        mode = 'stock-all';
+        rows = await this.moyskladFetchAll(settings, '/report/stock/all', 1000, 100);
       }
 
-      const rows = Array.isArray(data?.rows) ? data.rows : [];
       const result = await this.inventoryService.replaceStockFromMoysklad(companyId, rows);
-      const message = `Qoldiq sync: ${result.rows} qator, ${result.totalQuantity} dona`;
-      await this.pushHistory(companyId, 'MOYSKLAD', 'STOCK', 'SUCCESS', message, result);
-      return { ok: true, message, ...result };
+      const message = `Qoldiq sync: ${result.rows} qator, ${result.totalQuantity} dona. Mode: ${mode}. MS rows: ${rows.length}`;
+      await this.pushHistory(companyId, 'MOYSKLAD', 'STOCK', 'SUCCESS', message, { ...result, mode, moyskladRows: rows.length });
+      return { ok: true, message, ...result, mode, moyskladRows: rows.length };
     } catch (error: any) {
       return this.fail(companyId, 'MOYSKLAD', 'STOCK', error?.message || 'Qoldiq sync xatosi');
     }
@@ -407,7 +461,7 @@ export class IntegrationsService {
 
     for (const path of attempts) {
       try {
-        const part = await this.moyskladFetchAll(settings, path, 100, 20);
+        const part = await this.moyskladFetchAll(settings, path, 200, 300);
         if (part.length) rows.push(...part);
         if (rows.length) break;
       } catch (error: any) {
@@ -436,7 +490,7 @@ export class IntegrationsService {
     return unique;
   }
 
-  private async moyskladFetchAll(settings: Settings, path: string, limit = 1000, maxPages = 100) {
+  private async moyskladFetchAll(settings: Settings, path: string, limit = 200, maxPages = 300) {
     const rows: any[] = [];
     let offset = 0;
     for (let i = 0; i < maxPages; i++) {
@@ -522,9 +576,10 @@ export class IntegrationsService {
     const directFields = ['balance', 'debt', 'accountBalance', 'sum', 'saldo', 'remainder'];
     for (const field of directFields) {
       if (row?.[field] === undefined || row?.[field] === null) continue;
-      const raw = Number(row[field]);
+      const raw = this.extractMoneyAmount(row[field]);
       if (!Number.isFinite(raw) || raw === 0) continue;
-      result.push({ amount: this.fromMoyskladMinorMoney(raw, baseCurrency), currency: baseCurrency, sign: raw > 0 ? 'PLUS' : 'MINUS' });
+      const currency = this.extractMoneyCurrency(row[field], baseCurrency);
+      result.push({ amount: this.fromMoyskladMinorMoney(raw, currency), currency, sign: raw > 0 ? 'PLUS' : 'MINUS' });
       break;
     }
 
@@ -532,9 +587,10 @@ export class IntegrationsService {
     const arrays = [row?.balances, row?.balanceByCurrency, row?.balancesByCurrency, row?.currencyBalances].filter(Array.isArray);
     for (const arr of arrays) {
       for (const item of arr) {
-        const raw = Number(item?.balance ?? item?.amount ?? item?.sum ?? item?.debt ?? item?.value ?? 0);
+        const moneyValue = item?.balance ?? item?.amount ?? item?.sum ?? item?.debt ?? item?.value ?? item;
+        const raw = this.extractMoneyAmount(moneyValue);
         if (!Number.isFinite(raw) || raw === 0) continue;
-        const currency = this.normalizeCurrency(item?.currency?.isoCode || item?.currency?.code || item?.currency?.name || item?.currency || baseCurrency);
+        const currency = this.extractMoneyCurrency(moneyValue, item?.currency || baseCurrency);
         result.push({ amount: this.fromMoyskladMinorMoney(raw, currency), currency, sign: raw > 0 ? 'PLUS' : 'MINUS' });
       }
     }
@@ -587,16 +643,93 @@ export class IntegrationsService {
     return [...merged.entries()].map(([currency, amount]) => ({ currency, amount }));
   }
 
+  private mergeDebtBalances(items: { amount: number; currency: string; sign?: string }[]) {
+    const map = new Map<string, { amount: number; currency: string; sign: string }>();
+
+    for (const item of items || []) {
+      const currency = this.normalizeCurrency(item.currency);
+      const amount = this.round2(Math.abs(Number(item.amount || 0)));
+      if (!Number.isFinite(amount) || amount <= 0) continue;
+
+      const old = map.get(currency) || { amount: 0, currency, sign: item.sign || 'UNKNOWN' };
+      old.amount = this.round2(old.amount + amount);
+      if (item.sign === 'MINUS') old.sign = 'MINUS';
+      map.set(currency, old);
+    }
+
+    return [...map.values()].filter((x) => x.amount > 0);
+  }
+
+  private round2(value: number) {
+    return Math.round((value + Number.EPSILON) * 100) / 100;
+  }
+
+  private extractMoneyAmount(value: any): number {
+    if (value === undefined || value === null) return 0;
+    if (typeof value === 'number') return value;
+    if (typeof value === 'string') return this.parseLooseNumber(value);
+    if (typeof value === 'object') {
+      const raw =
+        value.amount ??
+        value.value ??
+        value.balance ??
+        value.sum ??
+        value.debt ??
+        value.remainder ??
+        value.accountBalance ??
+        0;
+      return this.extractMoneyAmount(raw);
+    }
+    return 0;
+  }
+
+  private extractMoneyCurrency(value: any, fallback = 'UZS'): string {
+    if (value && typeof value === 'object') {
+      return this.normalizeCurrency(
+        value?.currency?.isoCode ||
+        value?.currency?.code ||
+        value?.currency?.name ||
+        value?.currency ||
+        value?.accountCurrency?.isoCode ||
+        value?.accountCurrency?.code ||
+        value?.accountCurrency?.name ||
+        fallback,
+      );
+    }
+    return this.normalizeCurrency(fallback);
+  }
+
+  private parseLooseNumber(value: any): number {
+    const raw = String(value || '').trim();
+    if (!raw) return 0;
+    const clean = raw
+      .replace(/\s/g, '')
+      .replace(/,/g, '.')
+      .replace(/[^0-9.\-]/g, '');
+    const normalized = clean.includes('.')
+      ? clean.replace(/\.(?=.*\.)/g, '')
+      : clean;
+    const n = Number(normalized);
+    return Number.isFinite(n) ? n : 0;
+  }
+
   private fromMoyskladMinorMoney(value: any, currency = 'UZS') {
-    const n = Number(value || 0);
+    const n = Math.abs(this.extractMoneyAmount(value));
     if (!Number.isFinite(n)) return 0;
 
-    // Digi World MoySklad report/counterparty UZS balansni allaqachon so'mda qaytaryapti.
-    // Oldingi kod /100 qilgani uchun 100 baravar kichik chiqayotgan edi.
-    // USD odatda cent formatda keladi, shuning uchun USD ni /100 qilamiz.
     const cur = this.normalizeCurrency(currency);
-    if (cur === 'USD') return Math.abs(n) / 100;
-    return Math.abs(n);
+
+    // Digi World qoidasiga mos:
+    // USD'da 45.000 / 45 000 ko'rinsa bu 45$ degani. Ortiqcha 000 lar kesiladi.
+    if (cur === 'USD') {
+      if (n >= 1000 && Number.isInteger(n) && n % 1000 === 0) return n / 1000;
+      if (n >= 100000 && Number.isInteger(n) && n % 100 === 0) return n / 100;
+      return n;
+    }
+
+    // UZS'da 45 000 000 haqiqiy so'm. Faqat juda katta minor-unit qiymatlar /100 qilinadi.
+    if (n >= 10000000000 && Number.isInteger(n) && n % 100 === 0) return n / 100;
+    return n;
   }
 
   private normalizeMoyskladMoney(value: any) {

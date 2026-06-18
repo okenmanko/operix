@@ -76,11 +76,20 @@ export class InventoryService {
       .filter((item) => item.quantity !== 0)
       .sort((a, b) => b.value - a.value);
 
+    const totalValueUZS = items
+      .filter((item) => this.normalizeCurrency(item.currency) === 'UZS')
+      .reduce((sum, item) => sum + item.value, 0);
+    const totalValueUSD = items
+      .filter((item) => this.normalizeCurrency(item.currency) === 'USD')
+      .reduce((sum, item) => sum + item.value, 0);
+
     return {
       warehouse,
       items,
       totalQuantity: items.reduce((sum, item) => sum + item.quantity, 0),
-      totalValue: items.reduce((sum, item) => sum + item.value, 0),
+      totalValue: totalValueUSD || totalValueUZS,
+      totalValueUZS,
+      totalValueUSD,
     };
   }
 
@@ -206,21 +215,24 @@ export class InventoryService {
       const sku = String(item?.article || item?.code || item?.assortment?.article || item?.assortment?.code || '').trim();
       const barcode = this.pickBarcode(item) || this.pickBarcode(item?.assortment || {});
       const productExternalId = this.extractExternalId(item?.assortment || item);
-      const price = this.pickMoyskladPrice(item?.assortment || item) || this.safeNumber(item?.price) / 100;
-      const currency = this.pickCurrency(item?.assortment || item) || 'UZS';
+      const currency = this.pickCurrency(item?.assortment || item) || this.pickCurrency(item) || 'UZS';
+      const price = this.pickMoyskladPrice(item?.assortment || item) || this.normalizePrice(item?.price ?? item?.salePrice ?? 0, currency);
 
-      const stockByStore = item?.stockByStore || item?.stockByWarehouse || item?.byStore || item?.stores || [];
+      const stockByStore = item?.stockByStore || item?.stockByWarehouse || item?.byStore || item?.stores || item?.storeStock || [];
       if (Array.isArray(stockByStore) && stockByStore.length) {
         for (const storeRow of stockByStore) {
-          const warehouseName = String(storeRow?.name || storeRow?.store?.name || storeRow?.warehouse?.name || storeRow?.meta?.name || 'Umumiy').trim();
-          const warehouseExternalId = this.extractExternalId(storeRow?.store || storeRow?.warehouse || storeRow);
-          const quantity = this.safeNumber(storeRow?.stock ?? storeRow?.quantity ?? storeRow?.count ?? 0);
+          const storeObj = storeRow?.store || storeRow?.warehouse || storeRow?.stockStore || storeRow;
+          const warehouseName = String(storeObj?.name || storeRow?.name || storeRow?.storeName || storeRow?.warehouseName || 'Umumiy').trim();
+          const warehouseExternalId = this.extractExternalId(storeObj) || this.extractExternalId(storeRow) || warehouseName;
+          const quantity = this.safeNumber(storeRow?.stock ?? storeRow?.quantity ?? storeRow?.count ?? storeRow?.value ?? 0);
           if (!productName || !warehouseName || quantity === 0) continue;
           normalizedRows.push({ productName, sku, barcode, productExternalId, warehouseName, warehouseExternalId, quantity, price, currency });
         }
       } else {
-        const quantity = this.safeNumber(item?.stock ?? item?.quantity ?? item?.count ?? 0);
-        if (productName && quantity !== 0) normalizedRows.push({ productName, sku, barcode, productExternalId, warehouseName: 'Umumiy', warehouseExternalId: 'general', quantity, price, currency });
+        const warehouseName = String(item?.store?.name || item?.warehouse?.name || item?.stockStore?.name || item?.storeName || 'Umumiy').trim();
+        const warehouseExternalId = this.extractExternalId(item?.store || item?.warehouse || item?.stockStore || {}) || warehouseName;
+        const quantity = this.safeNumber(item?.stock ?? item?.quantity ?? item?.count ?? item?.value ?? 0);
+        if (productName && quantity !== 0) normalizedRows.push({ productName, sku, barcode, productExternalId, warehouseName, warehouseExternalId, quantity, price, currency });
       }
     }
 
@@ -342,15 +354,34 @@ export class InventoryService {
   }
 
   private pickMoyskladPrice(item: any) {
-    const value = item?.salePrices?.[0]?.value ?? item?.salePrices?.[0]?.price ?? item?.price ?? 0;
-    const n = this.safeNumber(value);
-    return n > 100000 ? n / 100 : n;
+    const priceRow = Array.isArray(item?.salePrices) ? item.salePrices[0] : null;
+    const value = priceRow?.value ?? priceRow?.price ?? item?.price ?? 0;
+    const currency = this.pickCurrency(priceRow) || this.pickCurrency(item) || 'UZS';
+    return this.normalizePrice(value, currency);
   }
 
   private pickMoyskladBuyPrice(item: any) {
     const value = item?.buyPrice?.value ?? item?.buyPrice?.price ?? 0;
-    const n = this.safeNumber(value);
-    return n > 100000 ? n / 100 : n;
+    const currency = this.pickCurrency(item?.buyPrice) || this.pickCurrency(item) || 'UZS';
+    return this.normalizePrice(value, currency);
+  }
+
+  private normalizePrice(value: any, currency = 'UZS') {
+    const n = Math.abs(this.safeNumber(value));
+    if (!Number.isFinite(n)) return 0;
+    const cur = this.normalizeCurrency(currency);
+
+    // Digi World MoySklad'da USD narxlar ko'pincha 45.000 / 45000 ko'rinishida saqlangan.
+    // Bu 45$ degani. Shu uchun USD'dagi ortiqcha 000 kesiladi.
+    if (cur === 'USD') {
+      if (n >= 1000 && Number.isInteger(n) && n % 1000 === 0) return n / 1000;
+      if (n >= 100000 && Number.isInteger(n) && n % 100 === 0) return n / 100;
+      return n;
+    }
+
+    // UZS narxlar haqiqiy so'm bo'lib qoladi. Faqat juda katta minor-unit qiymatlar /100 qilinadi.
+    if (n >= 10000000000 && Number.isInteger(n) && n % 100 === 0) return n / 100;
+    return n;
   }
 
   private pickBarcode(item: any) {
@@ -360,7 +391,19 @@ export class InventoryService {
   }
 
   private pickCurrency(item: any) {
-    const raw = String(item?.currency?.name || item?.currency?.code || item?.salePrices?.[0]?.currency?.name || item?.salePrices?.[0]?.currency?.code || '').toUpperCase();
+    const raw = String(
+      item?.currency?.isoCode ||
+      item?.currency?.name ||
+      item?.currency?.code ||
+      item?.salePrices?.[0]?.currency?.isoCode ||
+      item?.salePrices?.[0]?.currency?.name ||
+      item?.salePrices?.[0]?.currency?.code ||
+      item?.priceType?.currency?.isoCode ||
+      item?.priceType?.currency?.name ||
+      item?.priceType?.currency?.code ||
+      item?.name ||
+      '',
+    ).toUpperCase();
     if (raw.includes('USD') || raw.includes('$') || raw.includes('ДОЛ')) return 'USD';
     if (raw.includes('UZS') || raw.includes('СУМ') || raw.includes('SO')) return 'UZS';
     return '';
@@ -370,6 +413,11 @@ export class InventoryService {
     const href = String(item?.meta?.href || item?.href || '').trim();
     const fromHref = href ? href.split('/').pop()?.split('?')[0] : '';
     return String(item?.id || fromHref || '').trim() || null;
+  }
+
+  private normalizeCurrency(value: any) {
+    const raw = String(value || 'UZS').trim().toUpperCase();
+    return raw.includes('USD') || raw.includes('$') || raw.includes('ДОЛ') ? 'USD' : 'UZS';
   }
 
   private sameProduct(row: any, product: any) {
