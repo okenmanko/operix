@@ -1,32 +1,57 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Download, FileSpreadsheet, Upload } from "lucide-react";
+import { Download, Upload } from "lucide-react";
 import { apiUpload, downloadFile } from "../lib/api";
 import { can } from "../lib/permissions";
+
+type ImportResult = {
+  ok?: boolean;
+  message?: string;
+  rowsRead?: number;
+  rowsProcessed?: number;
+  debtsCreated?: number;
+  clientsCreated?: number;
+  clientsUpdated?: number;
+  skipped?: number;
+  negativeRows?: number;
+  importedUsdTotal?: number;
+  importedUzsTotal?: number;
+  totalUSD?: number;
+  totalUZS?: number;
+  skippedRows?: Array<{ row: number; reason: string; name?: string }>;
+};
 
 export default function ClientsExcelTools({ onDone }: { onDone?: () => void }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<ImportResult | null>(null);
 
   async function upload(file: File) {
     try {
+      setLoading(true);
       setError("");
       setMessage("");
+      setResult(null);
 
       const fd = new FormData();
       fd.append("file", file);
+      fd.append("mode", "replace");
 
-      const result = await apiUpload<any>("/clients/import-excel", fd);
-
+      const data = await apiUpload<ImportResult>("/debts/import-excel", fd);
+      setResult(data);
       setMessage(
-        `QARZ13 import: qator ${result?.rowsProcessed || 0}, qarz ${result?.debtsCreated || 0}. USD ${Number(result?.importedUsdTotal || 0).toLocaleString("ru-RU")}, UZS ${Number(result?.importedUzsTotal || 0).toLocaleString("ru-RU")}. Minus qatorlar: ${result?.negativeRows || 0}.`,
+        data?.message ||
+          `Excel import: ${data?.debtsCreated || 0} ta qarz. USD ${num(data?.importedUsdTotal ?? data?.totalUSD)}, UZS ${num(data?.importedUzsTotal ?? data?.totalUZS)}.`,
       );
 
       onDone?.();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Import xatosi");
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -34,19 +59,9 @@ export default function ClientsExcelTools({ onDone }: { onDone?: () => void }) {
     try {
       setError("");
       setMessage("");
-      await downloadFile("/clients/export-excel", "QARZ13-operix-export.xlsx");
+      await downloadFile("/debts/export-excel", "QARZ13-operix-export.xlsx");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Export xatosi");
-    }
-  }
-
-  async function downloadTemplate() {
-    try {
-      setError("");
-      setMessage("");
-      await downloadFile("/clients/import-template", "QARZ13-shablon.xlsx");
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Shablon yuklanmadi");
     }
   }
 
@@ -67,36 +82,28 @@ export default function ClientsExcelTools({ onDone }: { onDone?: () => void }) {
       />
 
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="max-w-[820px]">
-          <h2 className="text-[21px] font-normal tracking-[-0.04em] text-[#111827]">
-            QARZ13 Excel import / export
+        <div className="max-w-[860px]">
+          <h2 className="text-[21px] font-normal tracking-[-0.04em] text-[var(--text)]">
+            1C / QARZ13 Excel import
           </h2>
-          <p className="mt-1 text-[13px] leading-5 text-[#8aa0ba]">
-            Shu eski QARZ13.06.26.xls formatini avtomatik o‘qiydi: A=Номер, B=Клиент, C=Тел, D=Срок, E=Доллар, F=Сум.
+          <p className="mt-1 text-[13px] leading-5 text-[var(--muted)]">
+            Import bosilganda eski Operix qarzlari tozalanadi va Excel yagona manba bo‘ladi. Format: B=Клиент, C=Тел, D=Срок, E=Доллар, F=Сум. Data 5-qatordan boshlanadi.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
           {can("clients:import") ? (
-            <button onClick={downloadTemplate} className="premium-button premium-button-soft">
+            <button disabled={loading} onClick={() => inputRef.current?.click()} className="premium-button premium-button-primary disabled:opacity-60">
               <span className="inline-flex items-center gap-2">
-                <FileSpreadsheet size={17} /> QARZ13 shablon
-              </span>
-            </button>
-          ) : null}
-
-          {can("clients:import") ? (
-            <button onClick={() => inputRef.current?.click()} className="premium-button premium-button-soft">
-              <span className="inline-flex items-center gap-2">
-                <Upload size={17} /> Import
+                <Upload size={17} /> {loading ? "Import..." : "Excel import"}
               </span>
             </button>
           ) : null}
 
           {can("clients:export") ? (
-            <button onClick={exportExcel} className="premium-button premium-button-primary">
+            <button onClick={exportExcel} className="premium-button premium-button-soft">
               <span className="inline-flex items-center gap-2">
-                <Download size={17} /> Export
+                <Download size={17} /> Excel export
               </span>
             </button>
           ) : null}
@@ -104,16 +111,36 @@ export default function ClientsExcelTools({ onDone }: { onDone?: () => void }) {
       </div>
 
       {message ? (
-        <p className="mt-4 rounded-[16px] bg-emerald-50 px-4 py-3 text-[13px] text-emerald-700">
-          {message}
-        </p>
+        <div className="mt-4 rounded-[16px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-[13px] text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/40 dark:text-emerald-200">
+          <p>{message}</p>
+          {result ? (
+            <p className="mt-1 opacity-90">
+              Qator: {num(result.rowsRead)} | Kiritildi: {num(result.rowsProcessed)} | Skip: {num(result.skipped)} | Minus: {num(result.negativeRows)}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {result?.skippedRows?.length ? (
+        <details className="mt-3 rounded-[16px] border border-[var(--border)] bg-[var(--card-soft)] px-4 py-3 text-[12px] text-[var(--muted)]">
+          <summary className="cursor-pointer text-[var(--text)]">Skip qatorlar</summary>
+          <div className="mt-3 space-y-1">
+            {result.skippedRows.slice(0, 12).map((row) => (
+              <p key={`${row.row}-${row.reason}`}>#{row.row}: {row.reason} {row.name ? `— ${row.name}` : ""}</p>
+            ))}
+          </div>
+        </details>
       ) : null}
 
       {error ? (
-        <p className="mt-4 rounded-[16px] bg-red-50 px-4 py-3 text-[13px] text-red-600">
+        <p className="mt-4 rounded-[16px] border border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-600 dark:border-red-900/40 dark:bg-red-950/40 dark:text-red-200">
           {error}
         </p>
       ) : null}
     </div>
   );
+}
+
+function num(value: any) {
+  return Number(value || 0).toLocaleString("ru-RU");
 }
