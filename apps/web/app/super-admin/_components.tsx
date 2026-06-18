@@ -7,6 +7,7 @@ import {
   CreditCard,
   LayoutDashboard,
   LogOut,
+  Settings,
   ShieldCheck,
   Users,
 } from "lucide-react";
@@ -70,6 +71,7 @@ const links = [
   { href: "/super-admin/companies", labelKey: "companies", fallback: "Kompaniyalar", icon: Building2 },
   { href: "/super-admin/users", labelKey: "users", fallback: "Userlar", icon: Users },
   { href: "/super-admin/billing", labelKey: "billing", fallback: "Billing", icon: CreditCard },
+  { href: "/super-admin/settings", labelKey: "settings", fallback: "Sozlamalar", icon: Settings },
 ];
 
 export function SuperAdminShell({ children }: { children: React.ReactNode }) {
@@ -79,37 +81,32 @@ export function SuperAdminShell({ children }: { children: React.ReactNode }) {
 
   return (
     <main className="min-h-screen bg-[var(--bg)] text-[var(--text)]">
-      <aside className="fixed left-0 top-0 z-30 flex h-screen w-[246px] flex-col border-r border-[var(--line)] bg-[var(--card)]/96 px-5 py-6 shadow-[10px_0_40px_rgba(15,23,42,0.025)] backdrop-blur-xl">
-        <div className="mb-9 flex items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-[20px] bg-[var(--blue-soft)] text-[var(--blue)]">
-            <ShieldCheck size={23} strokeWidth={1.8} />
+      <aside className="fixed left-0 top-0 z-30 flex h-screen w-[220px] flex-col border-r border-[var(--line)] bg-[var(--card)]/96 px-4 py-5 shadow-[10px_0_40px_rgba(15,23,42,0.025)] backdrop-blur-xl max-lg:hidden">
+        <Link href="/super-admin" className="mb-8 flex items-center gap-3 px-2">
+          <div className="flex h-10 w-10 items-center justify-center rounded-[16px] bg-[var(--blue-soft)] text-[var(--blue)]">
+            <ShieldCheck size={17} strokeWidth={1.8} />
           </div>
           <div>
-            <h1 className="text-[18px] font-normal tracking-[-0.035em] text-[var(--text)]">Operix</h1>
-            <p className="mt-1 text-[10px] uppercase tracking-[0.22em] text-[var(--muted-2)]">
-              {t("superAdmin")}
-            </p>
+            <h1 className="text-[23px] font-normal lowercase leading-none tracking-[-0.08em] text-[var(--text)]">qanot</h1>
+            <p className="mt-1 text-[10px] uppercase tracking-[0.18em] text-[var(--muted-2)]">admin</p>
           </div>
-        </div>
+        </Link>
 
-        <nav className="space-y-1.5">
+        <nav className="flex-1 space-y-1 overflow-y-auto pr-1">
           {links.map((item) => {
             const Icon = item.icon;
-            const active =
-              item.href === "/super-admin"
-                ? pathname === item.href
-                : pathname.startsWith(item.href);
+            const active = item.href === "/super-admin" ? pathname === item.href : pathname.startsWith(item.href);
             return (
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex h-12 items-center gap-3 rounded-[18px] px-4 text-[14px] font-normal transition ${
+                className={`flex h-11 items-center gap-3 rounded-[15px] px-3 text-[13px] font-normal transition ${
                   active
-                    ? "border border-[var(--blue-line)] bg-[var(--blue-soft)] text-[var(--blue)]"
+                    ? "border border-[var(--blue)]/25 bg-[var(--blue-soft)] text-[var(--blue)]"
                     : "text-[var(--muted)] hover:bg-[var(--hover)] hover:text-[var(--text)]"
                 }`}
               >
-                <Icon size={18} strokeWidth={1.8} /> {t(item.labelKey, item.fallback)}
+                <Icon size={17} strokeWidth={1.75} /> {t(item.labelKey, item.fallback)}
               </Link>
             );
           })}
@@ -120,17 +117,26 @@ export function SuperAdminShell({ children }: { children: React.ReactNode }) {
             clearAuth();
             router.replace("/super-login");
           }}
-          className="mt-auto flex h-12 items-center justify-center gap-2 rounded-[18px] border border-[var(--line)] bg-[var(--soft)] text-[14px] text-[var(--muted)] transition hover:bg-[var(--blue-soft)] hover:text-[var(--blue)]"
+          className="mt-5 flex h-10 items-center justify-center gap-2 rounded-[15px] border border-[var(--line)] bg-[var(--soft)] text-[13px] text-[var(--muted)] transition hover:bg-[var(--blue-soft)] hover:text-[var(--blue)]"
         >
-          <LogOut size={18} /> {t("logout")}
+          <LogOut size={16} /> {t("logout", "Chiqish")}
         </button>
       </aside>
 
-      <section className="ml-[246px] min-h-screen px-9 py-8">
-        <div className="mx-auto max-w-[1440px]">
-          <div className="mb-5 flex justify-end gap-3">
+      <section className="ml-[220px] min-h-screen px-7 py-5 max-lg:ml-0 max-lg:px-5 max-sm:px-4">
+        <div className="mx-auto max-w-[1480px]">
+          <div className="mb-5 flex flex-wrap justify-end gap-3">
             <LangSwitcher />
             <ThemeSwitcher />
+            <button
+              onClick={() => {
+                clearAuth();
+                router.replace("/super-login");
+              }}
+              className="hidden h-10 items-center gap-2 rounded-[15px] border border-[var(--line)] bg-[var(--card)] px-4 text-[13px] text-[var(--muted)] max-lg:inline-flex"
+            >
+              <LogOut size={15} /> Chiqish
+            </button>
           </div>
           {children}
         </div>
@@ -148,18 +154,13 @@ export function PageTop({
   subtitle: string;
   action?: React.ReactNode;
 }) {
-  const { t } = useI18n();
-
   return (
-    <div className="mb-7 flex items-start justify-between gap-6">
+    <div className="mb-6 flex items-start justify-between gap-5 max-md:flex-col">
       <div>
-        <p className="mb-2 text-[12px] uppercase tracking-[0.18em] text-[var(--muted-2)]">
-          {t("controlCenter")}
-        </p>
-        <h1 className="text-[38px] font-normal tracking-[-0.055em] text-[var(--text)]">
+        <h1 className="text-[34px] font-normal tracking-[-0.06em] text-[var(--text)] max-sm:text-[30px]">
           {title}
         </h1>
-        <p className="mt-3 max-w-3xl text-[15px] leading-6 text-[var(--muted)]">
+        <p className="mt-2 max-w-3xl text-[14px] leading-6 text-[var(--muted)]">
           {subtitle}
         </p>
       </div>
@@ -168,15 +169,9 @@ export function PageTop({
   );
 }
 
-export function Card({
-  children,
-  className = "",
-}: {
-  children: React.ReactNode;
-  className?: string;
-}) {
+export function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return (
-    <div className={`rounded-[30px] border border-[var(--line)] bg-[var(--card)] shadow-[0_20px_55px_rgba(15,23,42,0.045)] ${className}`}>
+    <div className={`rounded-[26px] border border-[var(--line)] bg-[var(--card)] shadow-[var(--shadow-soft)] ${className}`}>
       {children}
     </div>
   );
@@ -206,7 +201,7 @@ export function Button({
     <button
       type={type}
       onClick={onClick}
-      className={`h-12 rounded-[18px] px-5 text-[14px] font-normal transition ${cls} ${className}`}
+      className={`h-10 rounded-[15px] px-4 text-[13px] font-normal transition ${cls} ${className}`}
     >
       {children}
     </button>
@@ -228,15 +223,17 @@ export function Input({
 }) {
   return (
     <label className="block">
-      <span className="mb-2 block text-[11px] uppercase tracking-[0.16em] text-[var(--muted-2)]">
-        {label}
-      </span>
+      {label ? (
+        <span className="mb-2 block text-[10px] uppercase tracking-[0.16em] text-[var(--muted-2)]">
+          {label}
+        </span>
+      ) : null}
       <input
         type={type}
         value={value}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
-        className="h-[48px] w-full rounded-[17px] border border-[var(--input-line)] bg-[var(--input-bg)] px-4 text-[14px] font-normal text-[var(--text)] outline-none transition placeholder:text-[var(--muted-2)] focus:border-[#9ec5fe] focus:ring-4 focus:ring-[var(--focus)]"
+        className="h-[44px] w-full rounded-[15px] border border-[var(--input-line)] bg-[var(--input-bg)] px-4 text-[13px] font-normal text-[var(--text)] outline-none transition placeholder:text-[var(--muted-2)] focus:border-[#9ec5fe] focus:ring-4 focus:ring-[var(--focus)]"
       />
     </label>
   );
@@ -253,15 +250,15 @@ export function Select({
   onChange: (v: string) => void;
   options: string[] | SelectOption[];
 }) {
-  const normalized = options.map((x: any) =>
-    typeof x === "string" ? { value: x, label: x } : x,
-  );
+  const normalized = options.map((x: any) => (typeof x === "string" ? { value: x, label: x } : x));
 
   return (
     <label className="block">
-      <span className="mb-2 block text-[11px] uppercase tracking-[0.16em] text-[var(--muted-2)]">
-        {label}
-      </span>
+      {label ? (
+        <span className="mb-2 block text-[10px] uppercase tracking-[0.16em] text-[var(--muted-2)]">
+          {label}
+        </span>
+      ) : null}
       <CustomSelect value={value} onChange={onChange} options={normalized} />
     </label>
   );
@@ -279,7 +276,7 @@ export function StatusBadge({ status }: { status: string }) {
 
 export function Toast({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mb-5 rounded-[22px] border border-red-200 bg-red-50 px-5 py-4 text-[14px] text-red-600 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
+    <div className="mb-5 rounded-[20px] border border-red-200 bg-red-50 px-5 py-4 text-[14px] text-red-600 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
       {children}
     </div>
   );

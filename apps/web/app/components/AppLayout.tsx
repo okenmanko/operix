@@ -22,17 +22,14 @@ export default function AppLayout({
     <main className="premium-page min-h-screen text-[var(--text)]">
       <Sidebar />
 
-      <section className="ml-[250px] min-h-screen px-8 py-6 max-lg:ml-0 max-lg:px-5 max-sm:px-4 max-sm:py-5">
-        <div className="mx-auto max-w-[1420px]">
+      <section className="ml-[220px] min-h-screen px-7 py-5 max-lg:ml-0 max-lg:px-5 max-sm:px-4 max-sm:py-5">
+        <div className="mx-auto max-w-[1480px]">
           <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
             <Link href="/" className="hidden items-center gap-3 max-lg:flex">
-              <div className="flex h-11 w-11 items-center justify-center rounded-[18px] bg-[var(--blue-soft)] text-[var(--blue)]">
-                <Menu size={18} />
+              <div className="flex h-10 w-10 items-center justify-center rounded-[16px] bg-[var(--blue-soft)] text-[var(--blue)]">
+                <Menu size={17} />
               </div>
-              <div>
-                <p className="text-[18px] tracking-[-0.05em] text-[var(--text)]">QANOT</p>
-                <p className="text-[10px] uppercase tracking-[0.18em] text-[var(--muted-2)]">Business OS</p>
-              </div>
+              <p className="text-[23px] lowercase leading-none tracking-[-0.08em] text-[var(--text)]">qanot</p>
             </Link>
 
             <div className="ml-auto flex flex-wrap items-center gap-3 max-sm:w-full">
@@ -43,9 +40,9 @@ export default function AppLayout({
                   clearAuth();
                   window.location.href = "/login";
                 }}
-                className="inline-flex h-11 items-center gap-2 rounded-[16px] border border-[var(--line)] bg-[var(--card)] px-4 text-[13px] font-normal text-[var(--muted)] shadow-[var(--shadow-soft)] transition hover:bg-[var(--blue-soft)] hover:text-[var(--blue)] max-sm:flex-1 max-sm:justify-center"
+                className="inline-flex h-10 items-center gap-2 rounded-[15px] border border-[var(--line)] bg-[var(--card)] px-4 text-[13px] font-normal text-[var(--muted)] shadow-[var(--shadow-soft)] transition hover:bg-[var(--blue-soft)] hover:text-[var(--blue)] max-sm:flex-1 max-sm:justify-center"
               >
-                <LogOut size={16} /> Chiqish
+                <LogOut size={15} /> Chiqish
               </button>
             </div>
           </div>
