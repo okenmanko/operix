@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Res, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { DebtsService } from './debts.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -18,6 +19,12 @@ export class DebtsController {
   @Post()
   create(@CurrentUser() user: AuthUser, @Body() body: any) {
     return this.debtsService.create(user.companyId, body);
+  }
+
+  @Post('import-excel')
+  @UseInterceptors(FileInterceptor('file'))
+  importExcel(@CurrentUser() user: AuthUser, @UploadedFile() file: any, @Body() body: any) {
+    return this.debtsService.importExcel(user.companyId, file?.buffer, body?.mode || 'replace');
   }
 
   @Patch(':id')

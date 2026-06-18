@@ -9,24 +9,14 @@ type Summary = {
   products: number;
   warehouses: number;
   totalQuantity: number;
-  totalValue: number;
-  topWarehouses: Array<{
-    id: string;
-    name: string;
-    productCount: number;
-    totalQuantity: number;
-    totalValue: number;
-  }>;
+  totalValue?: number;
+  totalValueUZS?: number;
+  totalValueUSD?: number;
+  topWarehouses: Array<{ id: string; name: string; productCount: number; totalQuantity: number; totalValue: number; totalValueUZS?: number; totalValueUSD?: number }>;
 };
 
 export default function InventoryPage() {
-  const [summary, setSummary] = useState<Summary>({
-    products: 0,
-    warehouses: 0,
-    totalQuantity: 0,
-    totalValue: 0,
-    topWarehouses: [],
-  });
+  const [summary, setSummary] = useState<Summary>({ products: 0, warehouses: 0, totalQuantity: 0, totalValueUZS: 0, totalValueUSD: 0, topWarehouses: [] });
   const [error, setError] = useState("");
 
   async function load() {
@@ -39,93 +29,48 @@ export default function InventoryPage() {
     }
   }
 
-  useEffect(() => {
-    load();
-  }, []);
+  useEffect(() => { load(); }, []);
 
   return (
-    <AppLayout title="Inventory" subtitle="Mahsulotlar, omborlar, qoldiq va umumiy sklad qiymati.">
-      {error ? (
-        <div className="mb-5 rounded-[18px] border border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-600">{error}</div>
-      ) : null}
+    <AppLayout title="Inventory" subtitle="MoySklad’dan tovar nomi, aniq narxi, soni va qaysi skladda ekani.">
+      {error ? <div className="mb-5 rounded-[18px] border border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-600">{error}</div> : null}
 
-      <div className="mb-5 grid grid-cols-4 gap-4">
+      <div className="mb-5 grid grid-cols-1 gap-4 md:grid-cols-5">
         <Stat label="Mahsulot turlari" value={`${num(summary.products)} ta`} />
         <Stat label="Omborlar" value={`${num(summary.warehouses)} ta`} />
-        <Stat label="Jami qoldiq" value={`${num(summary.totalQuantity)} dona`} />
-        <Stat label="Jami summa" value={money(summary.totalValue, "USD")} />
+        <Stat label="Jami dona" value={`${num(summary.totalQuantity)} dona`} />
+        <Stat label="UZS qiymat" value={money(summary.totalValueUZS || 0, "UZS")} />
+        <Stat label="USD qiymat" value={money(summary.totalValueUSD || 0, "USD")} />
       </div>
 
-      <div className="grid grid-cols-2 gap-5">
-        <div className="premium-card p-6">
-          <div className="mb-5 flex items-center justify-between">
-            <div>
-              <h2 className="text-[24px] font-normal tracking-[-0.04em]">Omborlar kesimi</h2>
-              <p className="mt-1 text-[13px] text-[#8aa0ba]">Ombor ustiga bosing — ichidagi mahsulotlar ochiladi.</p>
-            </div>
-            <Link href="/warehouses" className="inline-flex h-11 items-center justify-center rounded-[15px] bg-[#315efb] px-5 text-[13px] font-medium text-white">
-              Omborlar
-            </Link>
+      <div className="premium-card p-6">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h2 className="text-[24px] font-normal tracking-[-0.04em]">Omborlar bo‘yicha qoldiq</h2>
+            <p className="mt-1 text-[13px] text-[#8aa0ba]">Har bir skladda nechta mahsulot va qancha summa borligi.</p>
           </div>
-
-          <div className="overflow-hidden rounded-[20px] border border-[#edf2f7]">
-            <table className="w-full text-left text-[14px]">
-              <thead className="bg-[#f8fafc] text-[11px] uppercase tracking-[0.14em] text-[#8aa0ba]">
-                <tr>
-                  <th className="p-4 font-normal">Ombor</th>
-                  <th className="p-4 font-normal">Turi</th>
-                  <th className="p-4 font-normal">Dona</th>
-                  <th className="p-4 font-normal">Summa</th>
-                </tr>
-              </thead>
-              <tbody>
-                {summary.topWarehouses?.map((item) => (
-                  <tr key={item.id} className="border-t border-[#edf2f7]">
-                    <td className="p-4">
-                      <Link href={`/warehouses/${encodeURIComponent(item.id)}`} className="text-[#111827] hover:text-[#315efb]">
-                        {item.name}
-                      </Link>
-                    </td>
-                    <td className="p-4 text-[#64748b]">{num(item.productCount)} ta</td>
-                    <td className="p-4 text-[#111827]">{num(item.totalQuantity)} dona</td>
-                    <td className="p-4 text-[#111827]">{money(item.totalValue, "USD")}</td>
-                  </tr>
-                ))}
-
-                {!summary.topWarehouses?.length ? (
-                  <tr>
-                    <td colSpan={4} className="p-10 text-center text-[#8aa0ba]">
-                      Ombor qoldiqlari yo‘q. Integratsiyalar → Sync all ni bosing.
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
+          <Link href="/integrations" className="premium-button premium-button-primary">MoySklad sync</Link>
         </div>
 
-        <div className="premium-card p-6">
-          <h2 className="text-[24px] font-normal tracking-[-0.04em]">Tezkor amallar</h2>
-          <p className="mt-1 text-[13px] text-[#8aa0ba]">Sklad bo‘yicha tekshirish.</p>
-
-          <div className="mt-6 grid gap-3">
-            <Link href="/integrations" className="flex h-14 items-center justify-between rounded-[18px] bg-[#eef4ff] px-5 text-[#315efb]">
-              <span>MoySklad Sync all</span>
-              <span>→</span>
-            </Link>
-            <Link href="/products" className="flex h-14 items-center justify-between rounded-[18px] bg-[#f8fafc] px-5 text-[#64748b]">
-              <span>Productlar va sklad qoldiq</span>
-              <span>→</span>
-            </Link>
-            <Link href="/warehouses" className="flex h-14 items-center justify-between rounded-[18px] bg-[#f8fafc] px-5 text-[#64748b]">
-              <span>Omborlar ichidagi mahsulotlar</span>
-              <span>→</span>
-            </Link>
-            <Link href="/sales" className="flex h-14 items-center justify-between rounded-[18px] bg-[#f8fafc] px-5 text-[#64748b]">
-              <span>POS minus test</span>
-              <span>→</span>
-            </Link>
-          </div>
+        <div className="mt-5 overflow-x-auto rounded-[22px] border border-[#edf2f7]">
+          <table className="w-full min-w-[760px] text-left text-[14px]">
+            <thead className="bg-[#f8fafc] text-[11px] uppercase tracking-[0.14em] text-[#8aa0ba]">
+              <tr><th className="p-4 font-normal">Ombor</th><th className="p-4 font-normal">Mahsulot turi</th><th className="p-4 font-normal">Jami dona</th><th className="p-4 font-normal">UZS</th><th className="p-4 font-normal">USD</th><th className="p-4 text-right font-normal">Ochish</th></tr>
+            </thead>
+            <tbody>
+              {summary.topWarehouses?.map((warehouse) => (
+                <tr key={warehouse.id} className="border-t border-[#edf2f7]">
+                  <td className="p-4 text-[#111827]">{warehouse.name}</td>
+                  <td className="p-4 text-[#64748b]">{num(warehouse.productCount)} ta</td>
+                  <td className="p-4 text-[#111827]">{num(warehouse.totalQuantity)} dona</td>
+                  <td className="p-4 text-[#111827]">{money(warehouse.totalValueUZS || 0, "UZS")}</td>
+                  <td className="p-4 text-[#111827]">{money(warehouse.totalValueUSD || 0, "USD")}</td>
+                  <td className="p-4 text-right"><Link href={`/warehouses/${warehouse.id}`} className="text-[#315efb]">Ko‘rish</Link></td>
+                </tr>
+              ))}
+              {!summary.topWarehouses?.length ? <tr><td colSpan={6} className="p-10 text-center text-[#8aa0ba]">Qoldiq yo‘q. Integrations → Omborlar → Tovarlar → Qoldiq bos.</td></tr> : null}
+            </tbody>
+          </table>
         </div>
       </div>
     </AppLayout>
@@ -133,10 +78,5 @@ export default function InventoryPage() {
 }
 
 function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="premium-card p-5">
-      <p className="text-[13px] text-[#64748b]">{label}</p>
-      <p className="mt-4 text-[26px] font-normal tracking-[-0.05em] text-[#111827]">{value}</p>
-    </div>
-  );
+  return <div className="premium-card p-5"><p className="text-[13px] text-[#64748b]">{label}</p><p className="mt-4 text-[24px] font-normal tracking-[-0.05em] text-[#111827]">{value}</p></div>;
 }

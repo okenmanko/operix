@@ -19,7 +19,7 @@ export class IntegrationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly inventoryService: InventoryService,
-  ) { }
+  ) {}
 
   async getSettings(companyId: string) {
     const settings = await this.getRawSettings(companyId);
@@ -52,25 +52,19 @@ export class IntegrationsService {
   async history(companyId: string) {
     const prismaAny = this.prisma as any;
     if (prismaAny.integrationLog?.findMany) {
-      return prismaAny.integrationLog.findMany({ where: { companyId }, orderBy: { createdAt: 'desc' }, take: 50 });
+      return prismaAny.integrationLog.findMany({ where: { companyId }, orderBy: { createdAt: 'desc' }, take: 80 });
     }
     return historyStore.get(companyId) || [];
   }
 
   async debugMoyskladCounterparty(companyId: string) {
     const settings = await this.getRawSettings(companyId);
-    return this.moyskladFetch(
-      settings,
-      '/report/counterparty?limit=5&expand=counterparty',
-    );
+    return this.moyskladFetch(settings, '/entity/counterparty?limit=5');
   }
 
   async debugMoyskladStock(companyId: string) {
     const settings = await this.getRawSettings(companyId);
-    return this.moyskladFetch(
-      settings,
-      '/report/stock/all?limit=3&stockByStore=true',
-    );
+    return this.moyskladFetch(settings, '/report/stock/all?limit=5&stockByStore=true&expand=assortment,stockByStore.store');
   }
 
   async testMoysklad(companyId: string) {
@@ -89,8 +83,7 @@ export class IntegrationsService {
   async syncMoyskladClients(companyId: string) {
     try {
       const settings = await this.getRawSettings(companyId);
-      const data = await this.moyskladFetchAll(settings, '/entity/counterparty', 200, 300);
-      const rows = Array.isArray(data) ? data : [];
+      const rows = await this.moyskladFetchAll(settings, '/entity/counterparty', 200, 400);
       let created = 0;
       let updated = 0;
       let skipped = 0;
@@ -129,197 +122,17 @@ export class IntegrationsService {
       return this.fail(companyId, 'MOYSKLAD', 'CLIENTS', error?.message || 'Mijozlar sync xatosi');
     }
   }
+
   async syncMoyskladDebts(companyId: string) {
-    try {
-      const settings = await this.getRawSettings(companyId);
-
-      /*
-        Digi World qarzlari MoySklad'da "Отгрузки / Demand" ichida turibdi.
-        Counterparty report USD'ni bermayapti. Shuning uchun qarzni demandlardan hisoblaymiz:
-
-        debt = demand.sum - demand.payedSum
-
-        MoySklad API pulni minor unitda qaytaradi:
-        1180.00 USD -> 118000
-        150.00 USD  -> 15000
-        469 377 820.62 UZS -> 46937782062
-      */
-      const [demands, currencyMap] = await Promise.all([
-        this.withTimeout(
-          this.moyskladFetchAll(
-            settings,
-            '/entity/demand?expand=agent,organization,store,rate.currency',
-            100,
-            1000,
-          ),
-          240_000,
-          'MoySklad otgruzkalar 240 sekunddan oshib ketdi.',
-        ),
-        this.loadMoyskladCurrencyMap(settings).catch(() => new Map<string, string>()),
-      ]);
-
-      let created = 0;
-      let createdClients = 0;
-      let updatedClients = 0;
-      let skippedNoName = 0;
-      let skippedNoDebt = 0;
-      let totalUZS = 0;
-      let totalUSD = 0;
-
-      await this.prisma.debt.deleteMany({
-        where: {
-          client: { companyId },
-          OR: [
-            { comment: { contains: 'MOYSKLAD_DEMAND_DEBT' } },
-            { comment: { contains: 'MOYSKLAD_BALANCE' } },
-          ],
-        },
-      });
-
-      const grouped = new Map<string, any>();
-
-      for (const demand of demands as any[]) {
-        const agent = demand?.agent || demand?.counterparty || {};
-        const name = String(agent?.name || demand?.agent?.name || '').trim();
-        const externalId = this.extractExternalId(agent);
-        const phone = this.pickPhone(agent);
-
-        if (!name) {
-          skippedNoName++;
-          continue;
-        }
-
-        const sum = this.safeNumber(demand?.sum);
-        const paid = this.safeNumber(
-          demand?.payedSum ??
-            demand?.paidSum ??
-            demand?.paymentsSum ??
-            demand?.paymentPlannedMoment ??
-            0,
-        );
-
-        const rawDebt = Math.max(0, sum - paid);
-
-        if (!rawDebt) {
-          skippedNoDebt++;
-          continue;
-        }
-
-        const currency = this.pickDemandCurrency(demand, currencyMap);
-        const amount = this.normalizeDemandDebt(rawDebt, currency);
-
-        if (!amount) {
-          skippedNoDebt++;
-          continue;
-        }
-
-        const key = `${externalId || name}:${currency}`;
-        const old = grouped.get(key) || {
-          name,
-          phone,
-          externalId,
-          currency,
-          amount: 0,
-          agent,
-          demandCount: 0,
-        };
-
-        old.amount = this.round2(old.amount + amount);
-        old.demandCount += 1;
-        grouped.set(key, old);
-      }
-
-      for (const item of grouped.values()) {
-        let client = await this.findClient(companyId, {
-          name: item.name,
-          phone: item.phone,
-          externalId: item.externalId,
-        });
-
-        if (!client) {
-          client = await this.prisma.client.create({
-            data: {
-              companyId,
-              fullName: item.name,
-              phone: item.phone || this.noPhone(companyId, item.externalId || item.name),
-              normalizedPhone: this.normalizePhone(item.phone),
-              address: item.agent?.actualAddress || item.agent?.legalAddress || null,
-              notes: item.externalId ? `MoySklad ID: ${item.externalId}` : null,
-              guarantorName: null,
-              guarantorPhone: null,
-            },
-          });
-          createdClients++;
-        } else {
-          client = await this.prisma.client.update({
-            where: { id: client.id },
-            data: {
-              fullName: item.name,
-              phone: item.phone || client.phone,
-              normalizedPhone: this.normalizePhone(item.phone || client.phone),
-              address: item.agent?.actualAddress || item.agent?.legalAddress || client.address,
-              notes: this.mergeNote(client.notes, item.externalId ? `MoySklad ID: ${item.externalId}` : ''),
-            },
-          });
-          updatedClients++;
-        }
-
-        const amount = this.round2(item.amount);
-
-        await this.prisma.debt.create({
-          data: {
-            clientId: client.id,
-            amount,
-            currency: item.currency,
-            status: 'ACTIVE',
-            comment: `MOYSKLAD_DEMAND_DEBT:${item.externalId || item.name}:${item.currency}:DEMANDS_${item.demandCount}`,
-          },
-        });
-
-        created++;
-
-        if (item.currency === 'USD') totalUSD += amount;
-        else totalUZS += amount;
-      }
-
-      const message =
-        `Qarzlar sync: ${created} ta qarz. ` +
-        `UZS: ${this.round2(totalUZS).toLocaleString('ru-RU')}. ` +
-        `USD: ${this.round2(totalUSD).toLocaleString('ru-RU')}. ` +
-        `Otgruzka: ${(demands as any[]).length}. Skip: ${skippedNoDebt}`;
-
-      await this.pushHistory(companyId, 'MOYSKLAD', 'DEBTS', 'SUCCESS', message, {
-        created,
-        createdClients,
-        updatedClients,
-        skippedNoName,
-        skippedNoDebt,
-        demands: (demands as any[]).length,
-        totalUZS: this.round2(totalUZS),
-        totalUSD: this.round2(totalUSD),
-      });
-
-      return {
-        ok: true,
-        message,
-        created,
-        createdClients,
-        updatedClients,
-        skippedNoName,
-        skippedNoDebt,
-        demands: (demands as any[]).length,
-        totalUZS: this.round2(totalUZS),
-        totalUSD: this.round2(totalUSD),
-      };
-    } catch (error: any) {
-      return this.fail(companyId, 'MOYSKLAD', 'DEBTS', error?.message || 'Qarzlar sync xatosi');
-    }
+    const message = 'MoySklad qarz sync vaqtincha o‘chirilgan. Qarzlar 1C/Excel import orqali kiritiladi.';
+    await this.pushHistory(companyId, 'MOYSKLAD', 'DEBTS', 'SUCCESS', message, { disabled: true });
+    return { ok: true, disabled: true, message };
   }
 
   async syncMoyskladProducts(companyId: string) {
     try {
       const settings = await this.getRawSettings(companyId);
-      const rows = await this.moyskladFetchAll(settings, '/entity/product', 200, 300);
+      const rows = await this.moyskladFetchAll(settings, '/entity/product?expand=salePrices.priceType,currency,buyPrice.currency', 200, 400);
       let created = 0;
       let updated = 0;
       let skipped = 0;
@@ -331,9 +144,9 @@ export class IntegrationsService {
         else skipped++;
       }
 
-      const message = `Tovarlar sync: ${created} yangi, ${updated} yangilandi, ${skipped} skip`;
-      await this.pushHistory(companyId, 'MOYSKLAD', 'PRODUCTS', 'SUCCESS', message, { created, updated, skipped });
-      return { ok: true, message, created, updated, skipped };
+      const message = `Tovarlar sync: ${created} yangi, ${updated} yangilandi, ${skipped} skip. MS rows: ${rows.length}`;
+      await this.pushHistory(companyId, 'MOYSKLAD', 'PRODUCTS', 'SUCCESS', message, { created, updated, skipped, moyskladRows: rows.length });
+      return { ok: true, message, created, updated, skipped, moyskladRows: rows.length };
     } catch (error: any) {
       return this.fail(companyId, 'MOYSKLAD', 'PRODUCTS', error?.message || 'Tovarlar sync xatosi');
     }
@@ -365,20 +178,31 @@ export class IntegrationsService {
   async syncMoyskladStock(companyId: string) {
     try {
       const settings = await this.getRawSettings(companyId);
-
-      // Muhim: oldingi kod faqat 200 qator olardi. Endi barcha sahifalarni olamiz.
       let rows: any[] = [];
-      let mode = 'stock-all-by-store';
+      let mode = 'stock-all-by-store-expanded';
 
-      try {
-        rows = await this.moyskladFetchAll(settings, '/report/stock/all?stockByStore=true', 1000, 100);
-      } catch (error: any) {
-        mode = 'stock-all';
-        rows = await this.moyskladFetchAll(settings, '/report/stock/all', 1000, 100);
+      const attempts = [
+        '/report/stock/all?stockByStore=true&expand=assortment,stockByStore.store',
+        '/report/stock/all?stockByStore=true&expand=assortment',
+        '/report/stock/all?stockByStore=true',
+        '/report/stock/all',
+      ];
+
+      let lastError = '';
+      for (const path of attempts) {
+        try {
+          rows = await this.moyskladFetchAll(settings, path, 1000, 100);
+          mode = path;
+          if (rows.length) break;
+        } catch (error: any) {
+          lastError = error?.message || String(error);
+        }
       }
 
+      if (!rows.length && lastError) throw new Error(lastError);
+
       const result = await this.inventoryService.replaceStockFromMoysklad(companyId, rows);
-      const message = `Qoldiq sync: ${result.rows} qator, ${result.totalQuantity} dona. Mode: ${mode}. MS rows: ${rows.length}`;
+      const message = `Qoldiq sync: ${result.rows} qator, ${result.products} tovar, ${result.warehouses} ombor, ${result.totalQuantity} dona. MS rows: ${rows.length}`;
       await this.pushHistory(companyId, 'MOYSKLAD', 'STOCK', 'SUCCESS', message, { ...result, mode, moyskladRows: rows.length });
       return { ok: true, message, ...result, mode, moyskladRows: rows.length };
     } catch (error: any) {
@@ -395,28 +219,21 @@ export class IntegrationsService {
     }
 
     syncRunStore.set(runKey, { running: true, action: 'ALL', startedAt: new Date().toISOString() });
-    await this.pushHistory(companyId, 'MOYSKLAD', 'ALL', 'RUNNING', 'Sync all boshlandi: mijozlar → qarzlar → omborlar → tovarlar → qoldiq');
+    await this.pushHistory(companyId, 'MOYSKLAD', 'ALL', 'RUNNING', 'Sync all boshlandi: mijozlar → omborlar → tovarlar → qoldiq. Qarzlar Excel/1C orqali.');
 
     try {
       const clients = await this.syncMoyskladClients(companyId);
-      const debts = await this.syncMoyskladDebts(companyId);
       const warehouses = await this.syncMoyskladWarehouses(companyId);
       const products = await this.syncMoyskladProducts(companyId);
       const stock = await this.syncMoyskladStock(companyId);
+      const debts = await this.syncMoyskladDebts(companyId);
 
-      const ok = Boolean(clients.ok && debts.ok && warehouses.ok && products.ok && stock.ok);
+      const ok = Boolean(clients.ok && warehouses.ok && products.ok && stock.ok);
       const message = ok
-        ? 'Sync all tugadi. Dashboard/Mijozlar/Qarzlar/Tovarlar/Omborlar yangilandi.'
+        ? 'Sync all tugadi. MoySklad tovar/ombor/qoldiq yangilandi. Qarzlar Excel/1C import orqali kiritiladi.'
         : 'Sync all tugadi, lekin ayrim bo‘limlarda xato bor. Historyni ko‘r.';
 
-      await this.pushHistory(companyId, 'MOYSKLAD', 'ALL', ok ? 'SUCCESS' : 'ERROR', message, {
-        clients,
-        debts,
-        warehouses,
-        products,
-        stock,
-      });
-
+      await this.pushHistory(companyId, 'MOYSKLAD', 'ALL', ok ? 'SUCCESS' : 'ERROR', message, { clients, debts, warehouses, products, stock });
       return { ok, message, clients, debts, warehouses, products, stock };
     } catch (error: any) {
       const message = error?.message || 'Sync all xatosi';
@@ -439,23 +256,20 @@ export class IntegrationsService {
     }
   }
 
-  async syncOneCClients(companyId: string) { return this.fail(companyId, 'ONE_C', 'CLIENTS', '1C endpoint strukturasi kerak.'); }
+  async syncOneCClients(companyId: string) { return this.fail(companyId, 'ONE_C', 'CLIENTS', '1C endpoint strukturasi kerak. Hozir qarzlar Excel import orqali ishlaydi.'); }
   async syncOneCProducts(companyId: string) { return this.fail(companyId, 'ONE_C', 'PRODUCTS', '1C endpoint strukturasi kerak.'); }
   async syncOneCAll(companyId: string) {
     const clients = await this.syncOneCClients(companyId);
     const products = await this.syncOneCProducts(companyId);
-    return { ok: false, message: '1C mapping kerak', clients, products };
+    return { ok: false, message: '1C mapping kerak. Hozir Excel import ishlat.', clients, products };
   }
-
 
   private async withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
     let timer: NodeJS.Timeout | null = null;
     try {
       return await Promise.race([
         promise,
-        new Promise<T>((_, reject) => {
-          timer = setTimeout(() => reject(new Error(message)), ms);
-        }),
+        new Promise<T>((_, reject) => { timer = setTimeout(() => reject(new Error(message)), ms); }),
       ]);
     } finally {
       if (timer) clearTimeout(timer);
@@ -489,49 +303,6 @@ export class IntegrationsService {
     }
   }
 
-  private async loadMoyskladCounterpartyReport(settings: Settings) {
-    const rows: any[] = [];
-
-    // Asosiy to'g'ri endpoint: report/counterparty.
-    // expand=counterparty qo'shiladi, shunda nom/id keladi.
-    const attempts = [
-      '/report/counterparty?expand=counterparty',
-      '/report/counterparty',
-    ];
-
-    let lastError = '';
-
-    for (const path of attempts) {
-      try {
-        const part = await this.moyskladFetchAll(settings, path, 200, 300);
-        if (part.length) rows.push(...part);
-        if (rows.length) break;
-      } catch (error: any) {
-        lastError = error?.message || String(error);
-      }
-    }
-
-    if (!rows.length) {
-      throw new Error(lastError || 'MoySklad report/counterparty bo\'sh qaytdi');
-    }
-
-    // Faqat dublikatlarni tozalaymiz. 400+ qarzdor bo'lsa ham hammasi qoladi.
-    const seen = new Set<string>();
-    const unique: any[] = [];
-
-    for (const row of rows) {
-      const agent = row?.counterparty || row?.agent || row;
-      const id = this.extractExternalId(agent) || String(agent?.name || row?.name || Math.random());
-      const rawBalance = row?.balance ?? row?.debt ?? row?.accountBalance ?? row?.sum ?? row?.saldo ?? row?.remainder ?? '';
-      const key = `${id}:${rawBalance}:${this.normalizeCurrency(row?.currency?.name || row?.currency?.isoCode || row?.currency?.code || row?.currency || '')}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      unique.push(row);
-    }
-
-    return unique;
-  }
-
   private async moyskladFetchAll(settings: Settings, path: string, limit = 200, maxPages = 300) {
     const rows: any[] = [];
     let offset = 0;
@@ -551,7 +322,7 @@ export class IntegrationsService {
     const base = (settings.moyskladApiUrl || 'https://api.moysklad.ru/api/remap/1.2').replace(/\/$/, '');
     const token = settings.moyskladToken.trim();
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 45_000);
+    const timer = setTimeout(() => controller.abort(), 60_000);
 
     let response: Response;
     try {
@@ -564,13 +335,12 @@ export class IntegrationsService {
         },
       });
     } catch (error: any) {
-      if (error?.name === 'AbortError') {
-        throw new Error(`MoySklad javob bermadi: ${path}`);
-      }
+      if (error?.name === 'AbortError') throw new Error(`MoySklad javob bermadi: ${path}`);
       throw error;
     } finally {
       clearTimeout(timer);
     }
+
     const text = await response.text();
     let data: any = null;
     if (text) { try { data = JSON.parse(text); } catch { data = text; } }
@@ -600,284 +370,6 @@ export class IntegrationsService {
       if (byPhone) return byPhone;
     }
     return this.prisma.client.findFirst({ where: { companyId, fullName: params.name } });
-  }
-
-  private extractReportBalances(row: any) {
-    const result: { amount: number; currency: string; sign: string }[] = [];
-
-    const baseCurrency = this.normalizeCurrency(
-      row?.currency?.isoCode ||
-      row?.currency?.code ||
-      row?.currency?.name ||
-      row?.accountCurrency?.isoCode ||
-      row?.accountCurrency?.name ||
-      'UZS',
-    );
-
-    // MoySklad pul qiymatlari ko'p hollarda tiyin/kopeyka formatida keladi: 351994562 => 3 519 945.62
-    const directFields = ['balance', 'debt', 'accountBalance', 'sum', 'saldo', 'remainder'];
-    for (const field of directFields) {
-      if (row?.[field] === undefined || row?.[field] === null) continue;
-      const raw = this.extractMoneyAmount(row[field]);
-      if (!Number.isFinite(raw) || raw === 0) continue;
-      const currency = this.extractMoneyCurrency(row[field], baseCurrency);
-      result.push({ amount: this.fromMoyskladMinorMoney(raw, currency), currency, sign: raw > 0 ? 'PLUS' : 'MINUS' });
-      break;
-    }
-
-    // Ba'zi accountlarda qarzlar valyuta bo'yicha array bo'lib keladi.
-    const arrays = [row?.balances, row?.balanceByCurrency, row?.balancesByCurrency, row?.currencyBalances].filter(Array.isArray);
-    for (const arr of arrays) {
-      for (const item of arr) {
-        const moneyValue = item?.balance ?? item?.amount ?? item?.sum ?? item?.debt ?? item?.value ?? item;
-        const raw = this.extractMoneyAmount(moneyValue);
-        if (!Number.isFinite(raw) || raw === 0) continue;
-        const currency = this.extractMoneyCurrency(moneyValue, item?.currency || baseCurrency);
-        result.push({ amount: this.fromMoyskladMinorMoney(raw, currency), currency, sign: raw > 0 ? 'PLUS' : 'MINUS' });
-      }
-    }
-
-    // Custom attribute bilan USD qarz saqlangan bo'lsa ham ushlaydi.
-    const attrs = Array.isArray(row?.attributes) ? row.attributes : [];
-    for (const attr of attrs) {
-      const name = String(attr?.name || '').toLowerCase();
-      if (!name.includes('qarz') && !name.includes('долг') && !name.includes('debt') && !name.includes('balance')) continue;
-      const raw = Number(attr?.value || 0);
-      if (!Number.isFinite(raw) || raw === 0) continue;
-      const currency = this.normalizeCurrency(name.includes('usd') || name.includes('$') || name.includes('дол') ? 'USD' : baseCurrency);
-      result.push({ amount: Math.abs(raw), currency, sign: raw > 0 ? 'PLUS' : 'MINUS' });
-    }
-
-    const merged = new Map<string, { amount: number; sign: string }>();
-    for (const item of result) {
-      const prev = merged.get(item.currency) || { amount: 0, sign: item.sign };
-      prev.amount += Math.abs(item.amount);
-      if (item.sign === 'MINUS') prev.sign = 'MINUS';
-      merged.set(item.currency, prev);
-    }
-
-    return [...merged.entries()]
-      .map(([currency, data]) => ({ currency, amount: data.amount, sign: data.sign }))
-      .filter((x) => x.amount > 0);
-  }
-
-  private extractBalances(item: any, report?: any) {
-    const candidates = [report, item].filter(Boolean);
-    const result: { amount: number; currency: string }[] = [];
-    for (const obj of candidates) {
-      const currency = this.normalizeCurrency(obj?.currency?.name || obj?.currency?.code || obj?.currency || obj?.accountCurrency || 'UZS');
-      const raw = obj?.balance ?? obj?.accountBalance ?? obj?.debt ?? obj?.sum ?? obj?.saldo ?? obj?.remainder;
-      const n = Number(raw || 0);
-      if (Number.isFinite(n) && n !== 0) result.push({ amount: n, currency });
-
-      const attrs = Array.isArray(obj?.attributes) ? obj.attributes : [];
-      for (const attr of attrs) {
-        const name = String(attr?.name || '').toLowerCase();
-        if (!name.includes('qarz') && !name.includes('долг') && !name.includes('debt') && !name.includes('balance')) continue;
-        const value = Number(attr?.value || 0);
-        if (!Number.isFinite(value) || value === 0) continue;
-        result.push({ amount: value, currency: this.normalizeCurrency(name.includes('usd') || name.includes('$') ? 'USD' : currency) });
-      }
-    }
-
-    const merged = new Map<string, number>();
-    for (const row of result) merged.set(row.currency, (merged.get(row.currency) || 0) + row.amount);
-    return [...merged.entries()].map(([currency, amount]) => ({ currency, amount }));
-  }
-
-  private mergeDebtBalances(items: { amount: number; currency: string; sign?: string }[]) {
-    const map = new Map<string, { amount: number; currency: string; sign: string }>();
-
-    for (const item of items || []) {
-      const currency = this.normalizeCurrency(item.currency);
-      const amount = this.round2(Math.abs(Number(item.amount || 0)));
-      if (!Number.isFinite(amount) || amount <= 0) continue;
-
-      const old = map.get(currency) || { amount: 0, currency, sign: item.sign || 'UNKNOWN' };
-      old.amount = this.round2(old.amount + amount);
-      if (item.sign === 'MINUS') old.sign = 'MINUS';
-      map.set(currency, old);
-    }
-
-    return [...map.values()].filter((x) => x.amount > 0);
-  }
-
-  private round2(value: number) {
-    return Math.round((value + Number.EPSILON) * 100) / 100;
-  }
-
-  private extractMoneyAmount(value: any): number {
-    if (value === undefined || value === null) return 0;
-    if (typeof value === 'number') return value;
-    if (typeof value === 'string') return this.parseLooseNumber(value);
-    if (typeof value === 'object') {
-      const raw =
-        value.amount ??
-        value.value ??
-        value.balance ??
-        value.sum ??
-        value.debt ??
-        value.remainder ??
-        value.accountBalance ??
-        0;
-      return this.extractMoneyAmount(raw);
-    }
-    return 0;
-  }
-
-  private extractMoneyCurrency(value: any, fallback = 'UZS'): string {
-    if (value && typeof value === 'object') {
-      return this.normalizeCurrency(
-        value?.currency?.isoCode ||
-        value?.currency?.code ||
-        value?.currency?.name ||
-        value?.currency ||
-        value?.accountCurrency?.isoCode ||
-        value?.accountCurrency?.code ||
-        value?.accountCurrency?.name ||
-        fallback,
-      );
-    }
-    return this.normalizeCurrency(fallback);
-  }
-
-  private parseLooseNumber(value: any): number {
-    const raw = String(value || '').trim();
-    if (!raw) return 0;
-    const clean = raw
-      .replace(/\s/g, '')
-      .replace(/,/g, '.')
-      .replace(/[^0-9.\-]/g, '');
-    const normalized = clean.includes('.')
-      ? clean.replace(/\.(?=.*\.)/g, '')
-      : clean;
-    const n = Number(normalized);
-    return Number.isFinite(n) ? n : 0;
-  }
-
-  private fromMoyskladMinorMoney(value: any, currency = 'UZS') {
-
-    let n = Math.abs(this.extractMoneyAmount(value));
-
-    if (!Number.isFinite(n)) return 0;
-
-    const cur = this.normalizeCurrency(currency);
-
-    // USD
-
-    if (cur === 'USD') {
-
-      // 118000 -> 1180
-
-      if (n > 10000 && n % 100 === 0) {
-        n = n / 100;
-      }
-
-      // 45000 -> 45
-
-      if (n > 1000 && n % 1000 === 0 && n < 100000) {
-        n = n / 1000;
-      }
-
-      return n;
-    }
-
-    // UZS
-
-    if (cur === 'UZS') {
-
-      // faqat juda katta minor unitlarni /100 qilamiz
-
-      if (n >= 10000000000 && n % 100 === 0) {
-        n = n / 100;
-      }
-
-      return n;
-    }
-
-    return n;
-  }
-
-  private safeNumber(value: any) {
-    const n = Number(value || 0);
-    return Number.isFinite(n) ? n : 0;
-  }
-
-  private normalizeDemandDebt(value: any, currency = 'UZS') {
-    const n = Math.abs(this.safeNumber(value));
-    if (!Number.isFinite(n) || n <= 0) return 0;
-
-    /*
-      MoySklad demand.sum va payedSum minor-unit:
-      USD: 118000 -> 1180.00
-      UZS: 46937782062 -> 469377820.62
-    */
-    return this.round2(n / 100);
-  }
-
-  private async loadMoyskladCurrencyMap(settings: Settings) {
-    const rows = await this.moyskladFetchAll(settings, '/entity/currency', 100, 20);
-    const map = new Map<string, string>();
-
-    for (const row of rows as any[]) {
-      const normalized = this.normalizeCurrency(
-        row?.isoCode || row?.code || row?.name || row?.fullName || row?.shortName || '',
-      );
-
-      const href = String(row?.meta?.href || '').trim();
-      const id = this.extractExternalId(row);
-
-      if (href) map.set(href, normalized);
-      if (id) map.set(id, normalized);
-      if (row?.name) map.set(String(row.name), normalized);
-      if (row?.isoCode) map.set(String(row.isoCode), normalized);
-      if (row?.code) map.set(String(row.code), normalized);
-    }
-
-    return map;
-  }
-
-  private pickDemandCurrency(demand: any, currencyMap: Map<string, string>) {
-    const candidates = [
-      demand?.rate?.currency?.meta?.href,
-      demand?.rate?.currency?.id,
-      demand?.rate?.currency?.name,
-      demand?.rate?.currency?.isoCode,
-      demand?.rate?.currency?.code,
-      demand?.currency?.meta?.href,
-      demand?.currency?.id,
-      demand?.currency?.name,
-      demand?.currency?.isoCode,
-      demand?.currency?.code,
-      demand?.organization?.account?.currency?.name,
-      demand?.organization?.accounts?.[0]?.currency?.name,
-      demand?.contract?.rate?.currency?.name,
-      demand?.name,
-      demand?.description,
-    ].filter(Boolean);
-
-    for (const value of candidates) {
-      const key = String(value);
-      const fromMap = currencyMap.get(key);
-      if (fromMap) return fromMap;
-
-      const direct = this.normalizeCurrency(key);
-      if (direct === 'USD') return 'USD';
-      if (key.toUpperCase().includes('UZS') || key.toUpperCase().includes('СУМ') || key.toUpperCase().includes('SO')) return 'UZS';
-    }
-
-    return 'UZS';
-  }
-
-  private normalizeMoyskladMoney(value: any) {
-    const n = Number(value || 0);
-    if (!Number.isFinite(n)) return 0;
-    return Math.abs(n) >= 100000 ? n / 100 : n;
-  }
-
-  private normalizeCurrency(value: any) {
-    const raw = String(value || 'UZS').trim().toUpperCase();
-    return raw.includes('USD') || raw.includes('$') || raw.includes('ДОЛ') ? 'USD' : 'UZS';
   }
 
   private pickPhone(item: any) {
@@ -928,19 +420,9 @@ export class IntegrationsService {
   }
 
   private async pushHistory(companyId: string, provider: string, action: string, status: string, message: string, payload?: any) {
-    const item = {
-      id: `${Date.now()}_${Math.random().toString(16).slice(2)}`,
-      provider,
-      action,
-      source: provider,
-      type: action,
-      status,
-      message,
-      payload,
-      createdAt: new Date().toISOString(),
-    };
+    const item = { id: `${Date.now()}_${Math.random().toString(16).slice(2)}`, provider, action, source: provider, type: action, status, message, payload, createdAt: new Date().toISOString() };
     const current = historyStore.get(companyId) || [];
-    historyStore.set(companyId, [item, ...current].slice(0, 50));
+    historyStore.set(companyId, [item, ...current].slice(0, 80));
 
     const prismaAny = this.prisma as any;
     if (prismaAny.integrationLog?.create) {
