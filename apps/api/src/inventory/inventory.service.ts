@@ -19,7 +19,7 @@ type StockRow = {
 
 @Injectable()
 export class InventoryService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   async products(companyId: string) {
     const products = await this.rawProducts(companyId);
@@ -459,8 +459,10 @@ export class InventoryService {
     const cur = this.normalizeCurrency(currency);
 
     if (cur === 'USD') {
-      if (n >= 1000 && Number.isInteger(n) && n % 1000 === 0) return this.round2(n / 1000);
-      if (n >= 10000 && Number.isInteger(n) && n % 100 === 0) return this.round2(n / 100);
+      if (n >= 100) {
+        return this.round2(n / 100);
+      }
+
       return this.round2(n);
     }
 
