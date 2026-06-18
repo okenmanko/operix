@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { CalendarDays, Coins } from "lucide-react";
+import { CalendarDays, Coins, RefreshCw } from "lucide-react";
 import AppLayout from "../components/AppLayout";
 import ModuleGate from "../components/ModuleGate";
 import CustomSelect from "../components/ui/CustomSelect";
 import { Toast } from "../components/ui/Toast";
+import { useI18n } from "../lib/i18n";
 import { apiJson } from "../lib/api";
 import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
@@ -69,6 +70,7 @@ function percent(value: number | null | undefined) {
 }
 
 export default function AnalyticsPage() {
+  const { t } = useI18n();
   const [data, setData] = useState<AnalyticsData>(EMPTY_DATA);
   const [currency, setCurrency] = useState("UZS");
   const [years, setYears] = useState("5");
@@ -107,7 +109,7 @@ export default function AnalyticsPage() {
   })), [data.topProducts]);
 
   return (
-    <AppLayout title="Analytics" subtitle="5 yillik savdo dinamikasi, oyma-oy taqqoslash va top mahsulotlar.">
+    <AppLayout title={t("analytics")} subtitle={t("analyticsSubtitle")}>
       <ModuleGate module="ANALYTICS">
         {error ? <Toast type="error">{error}</Toast> : null}
 
@@ -116,14 +118,14 @@ export default function AnalyticsPage() {
             <CustomSelect value={currency} onChange={setCurrency} options={currencyOptions} />
             <CustomSelect value={years} onChange={setYears} options={yearOptions} />
           </div>
-          <button type="button" onClick={load} className="premium-button premium-button-primary">Yangilash</button>
+          <button type="button" onClick={load} className="premium-button premium-button-primary"><RefreshCw size={17} /> {t("refresh")}</button>
         </div>
 
         {loading ? (
-          <div className="premium-card p-8 text-[15px] font-normal text-[#64748b]">Grafiklar yuklanmoqda...</div>
+          <div className="premium-card p-8 text-[15px] font-normal text-[#64748b]">{t("loading")}</div>
         ) : (
           <div className="space-y-5">
-            <div className="grid grid-cols-4 gap-4">
+            <div className="grid grid-cols-4 gap-4 max-xl:grid-cols-2 max-lg:grid-cols-1">
               <StatCard label={`${data.summary.currentYear} savdo`} value={money(data.summary.currentYearTotal, data.currency)} hint="Joriy yil" />
               <StatCard label="O‘tgan yil bilan farq" value={percent(data.summary.growthVsLastYear)} hint={money(data.summary.previousYearTotal, data.currency)} />
               <StatCard label="Eng kuchli oy" value={data.summary.peak ? `${data.summary.peak.month} ${data.summary.peak.year}` : "—"} hint={data.summary.peak ? money(data.summary.peak.total, data.currency) : "Hali savdo yo‘q"} />
@@ -136,7 +138,7 @@ export default function AnalyticsPage() {
               <div className="mt-5 h-[390px] w-full">
                 <ResponsiveContainer width="100%" height={390}>
                   <LineChart data={data.monthRows || []} margin={{ top: 10, right: 25, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" />
                     <XAxis dataKey="month" tick={{ fontSize: 12, fontWeight: 400 }} />
                     <YAxis tickFormatter={(value: number | string) => shortMoney(value)} tick={{ fontSize: 12, fontWeight: 400 }} />
                     <Tooltip formatter={(value: any) => money(Number(value || 0), data.currency)} />
@@ -149,11 +151,11 @@ export default function AnalyticsPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-5">
+            <div className="grid grid-cols-2 gap-5 max-lg:grid-cols-1">
               <ChartCard title={`${data.summary.currentMonth || "Joriy oy"} taqqoslash`} subtitle="Joriy oy vs o‘tgan yillar shu oyi.">
                 <ResponsiveContainer width="100%" height={300}>
                   <BarChart data={data.currentMonthComparison || []}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" />
                     <XAxis dataKey="year" tick={{ fontSize: 12, fontWeight: 400 }} />
                     <YAxis tickFormatter={(value: number | string) => shortMoney(value)} tick={{ fontSize: 12, fontWeight: 400 }} />
                     <Tooltip formatter={(value: any) => money(Number(value || 0), data.currency)} />
@@ -165,7 +167,7 @@ export default function AnalyticsPage() {
               <ChartCard title="Eng ko‘p sotilgan tovarlar" subtitle="QR/POS sotuvlar bo‘yicha top mahsulotlar.">
                 <ResponsiveContainer width="100%" height={300}>
                   <BarChart data={productChart} layout="vertical" margin={{ left: 20, right: 20 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" />
                     <XAxis type="number" tick={{ fontSize: 12, fontWeight: 400 }} />
                     <YAxis type="category" dataKey="name" width={130} tick={{ fontSize: 12, fontWeight: 400 }} />
                     <Tooltip />
@@ -184,9 +186,9 @@ export default function AnalyticsPage() {
 function StatCard({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
     <div className="premium-card p-6">
-      <p className="text-[13px] font-normal text-slate-500">{label}</p>
-      <p className="mt-5 text-[28px] font-normal tracking-[-0.05em] text-slate-950">{value}</p>
-      {hint ? <p className="mt-2 text-[12px] font-normal text-slate-400">{hint}</p> : null}
+      <p className="text-[13px] font-normal text-[var(--muted)]">{label}</p>
+      <p className="mt-5 text-[28px] font-normal tracking-[-0.05em] text-[var(--text)]">{value}</p>
+      {hint ? <p className="mt-2 text-[12px] font-normal text-[var(--muted-2)]">{hint}</p> : null}
     </div>
   );
 }
@@ -194,8 +196,8 @@ function StatCard({ label, value, hint }: { label: string; value: string; hint?:
 function ChartCard({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
   return (
     <div className="premium-card p-6">
-      <h2 className="text-[22px] font-normal tracking-[-0.04em] text-slate-950">{title}</h2>
-      <p className="mt-1 text-[13px] font-normal text-slate-400">{subtitle}</p>
+      <h2 className="text-[22px] font-normal tracking-[-0.04em] text-[var(--text)]">{title}</h2>
+      <p className="mt-1 text-[13px] font-normal text-[var(--muted-2)]">{subtitle}</p>
       <div className="mt-5 h-[300px]">{children}</div>
     </div>
   );

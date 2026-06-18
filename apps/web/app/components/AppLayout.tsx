@@ -22,9 +22,9 @@ export default function AppLayout({
   return (
     <main className="premium-page min-h-screen text-[var(--text)]">
       <Sidebar />
-      <section className="ml-[250px] min-h-screen px-10 py-8">
+      <section className="ml-[250px] min-h-screen px-10 py-8 max-lg:ml-0 max-lg:px-5 max-sm:px-4 max-sm:py-5">
         <div className="mx-auto max-w-[1500px]">
-          <div className="mb-5 flex justify-end gap-3">
+          <div className="mb-5 flex flex-wrap justify-end gap-3 max-sm:justify-start">
             <LangSwitcher />
             <ThemeSwitcher />
             <button
@@ -32,7 +32,7 @@ export default function AppLayout({
                 clearAuth();
                 window.location.href = "/login";
               }}
-              className="h-11 rounded-[16px] border border-[var(--line)] bg-[var(--card)] px-4 text-[13px] font-normal text-[var(--muted)] shadow-[0_10px_26px_rgba(15,23,42,0.035)] transition hover:bg-[var(--blue-soft)] hover:text-[var(--blue)]"
+              className="h-11 rounded-[16px] border border-[var(--line)] bg-[var(--card)] px-4 text-[13px] font-normal text-[var(--muted)] shadow-[var(--shadow-soft)] transition hover:bg-[var(--blue-soft)] hover:text-[var(--blue)] max-sm:flex-1"
             >
               {t("logout")}
             </button>
