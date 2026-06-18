@@ -57,6 +57,22 @@ export class IntegrationsService {
     return historyStore.get(companyId) || [];
   }
 
+    async debugMoyskladCounterparty(companyId: string) {
+    const settings = await this.getRawSettings(companyId);
+    return this.moyskladFetch(
+      settings,
+      '/report/counterparty?limit=5&expand=counterparty',
+    );
+  }
+
+  async debugMoyskladStock(companyId: string) {
+    const settings = await this.getRawSettings(companyId);
+    return this.moyskladFetch(
+      settings,
+      '/report/stock/all?limit=3&stockByStore=true',
+    );
+  }
+  
   async testMoysklad(companyId: string) {
     try {
       const settings = await this.getRawSettings(companyId);

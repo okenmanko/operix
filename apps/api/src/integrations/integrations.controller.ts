@@ -24,6 +24,16 @@ export class IntegrationsController {
     return this.integrationsService.history(user.companyId);
   }
 
+  @Get('debug/moysklad/counterparty')
+  debugCounterparty(@CurrentUser() user: AuthUser) {
+    return this.integrationsService.debugMoyskladCounterparty(user.companyId);
+  }
+
+  @Get('debug/moysklad/stock')
+  debugStock(@CurrentUser() user: AuthUser) {
+    return this.integrationsService.debugMoyskladStock(user.companyId);
+  }
+
   @Post('moysklad/test')
   testMoysklad(@CurrentUser() user: AuthUser) {
     return this.integrationsService.testMoysklad(user.companyId);
@@ -38,7 +48,7 @@ export class IntegrationsController {
   @Post('moysklad/sync-debts')
   syncMoyskladDebts(@CurrentUser() user: AuthUser) {
     this.integrationsService.syncMoyskladDebts(user.companyId).catch(() => null);
-    return { ok: true, message: 'Qarzlar sync boshlandi. 400+ kontragent bo‘lsa ham backgroundda ishlaydi.' };
+    return { ok: true, message: 'Qarzlar sync boshlandi. Natijani Historydan ko‘rasiz.' };
   }
 
   @Post('moysklad/sync-products')
@@ -62,7 +72,7 @@ export class IntegrationsController {
   @Post('moysklad/sync-all')
   syncMoyskladAll(@CurrentUser() user: AuthUser) {
     this.integrationsService.syncMoyskladAll(user.companyId).catch(() => null);
-    return { ok: true, message: 'Sync all boshlandi. Sahifa osilmaydi. Natijani Historydan ko‘rasiz.' };
+    return { ok: true, message: 'Sync all boshlandi. Natijani Historydan ko‘rasiz.' };
   }
 
   @Post('onec/test')
