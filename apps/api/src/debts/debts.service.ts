@@ -2,6 +2,15 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaService } from '../prisma/prisma.service';
 import * as XLSX from 'xlsx';
 
+type ImportDebtItem = {
+  fullName: string;
+  phone: string;
+  dueDate: Date | null;
+  usdAmount: number;
+  uzsAmount: number;
+  rowNumber: number;
+};
+
 @Injectable()
 export class DebtsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -73,9 +82,19 @@ export class DebtsService {
     const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
     const sheetName = workbook.SheetNames[0];
     const sheet = workbook.Sheets[sheetName];
-    const rows = XLSX.utils.sheet_to_json<Record<string, any>>(sheet, { defval: '' });
+    if (!sheet) throw new BadRequestException('Excel varaq topilmadi');
 
-    if (!rows.length) throw new BadRequestException('Excel bo‘sh');
+    const matrix = XLSX.utils.sheet_to_json<any[]>(sheet, {
+      header: 1,
+      defval: '',
+      blankrows: false,
+      raw: false,
+    });
+
+    const rows = this.parseQarz13Rows(matrix);
+    if (!rows.length) {
+      throw new BadRequestException('Excel ichidan qarzdor topilmadi. Format: 4-qator header, A=Nomer, B=Klient, C=Tel, D=Srok, E=Dollar, F=Sum.');
+    }
 
     if (mode === 'replace') {
       await this.prisma.debt.deleteMany({
@@ -94,41 +113,28 @@ export class DebtsService {
     let totalUSD = 0;
 
     for (const row of rows) {
-      const normalized = this.normalizeRow(row);
-      const fullName = this.pick(normalized, ['mijoz', 'client', 'klient', 'kontragent', 'контрагент', 'клиент', 'fio', 'name', 'ism', 'fullname']);
-      const phone = this.normalizePhone(this.pick(normalized, ['telefon', 'phone', 'tel', 'номер', 'телефон']));
-      const address = this.pick(normalized, ['address', 'manzil', 'адрес']);
-      const comment = this.pick(normalized, ['comment', 'izoh', 'komment', 'комментарий', 'изох']);
-
-      if (!fullName) {
+      if (!row.fullName) {
         skipped++;
         continue;
       }
 
-      const uzsAmount = this.pickAmount(normalized, ['uzs', 'sum', 'som', 'so‘m', 'som qarz', 'sum qarz', 'сум', 'сумма сум', 'qarz uzs', 'debt uzs']);
-      const usdAmount = this.pickAmount(normalized, ['usd', 'dollar', '$', 'доллар', 'доллар qarz', 'qarz usd', 'debt usd']);
-      const commonAmount = this.pickAmount(normalized, ['qarz', 'debt', 'amount', 'summa', 'сумма']);
-      const commonCurrency = this.normalizeCurrency(this.pick(normalized, ['currency', 'valyuta', 'валюта']));
-
       const debtsToCreate: Array<{ amount: number; currency: string }> = [];
-      if (uzsAmount > 0) debtsToCreate.push({ amount: uzsAmount, currency: 'UZS' });
-      if (usdAmount > 0) debtsToCreate.push({ amount: usdAmount, currency: 'USD' });
-      if (!debtsToCreate.length && commonAmount > 0) debtsToCreate.push({ amount: commonAmount, currency: commonCurrency });
+      if (row.usdAmount > 0) debtsToCreate.push({ amount: row.usdAmount, currency: 'USD' });
+      if (row.uzsAmount > 0) debtsToCreate.push({ amount: row.uzsAmount, currency: 'UZS' });
 
       if (!debtsToCreate.length) {
         skipped++;
         continue;
       }
 
-      let client = await this.findClient(companyId, fullName, phone);
+      let client = await this.findClient(companyId, row.fullName, row.phone);
       if (client) {
         client = await this.prisma.client.update({
           where: { id: client.id },
           data: {
-            fullName,
-            phone: phone || client.phone,
-            normalizedPhone: phone || client.normalizedPhone,
-            address: address || client.address,
+            fullName: row.fullName,
+            phone: row.phone || client.phone,
+            normalizedPhone: row.phone || client.normalizedPhone,
           },
         });
         clientsUpdated++;
@@ -136,10 +142,10 @@ export class DebtsService {
         client = await this.prisma.client.create({
           data: {
             companyId,
-            fullName,
-            phone: phone || this.noPhone(companyId, fullName),
-            normalizedPhone: phone || null,
-            address: address || null,
+            fullName: row.fullName,
+            phone: row.phone || this.noPhone(companyId, row.fullName),
+            normalizedPhone: row.phone || null,
+            address: null,
             guarantorName: null,
             guarantorPhone: null,
             notes: 'EXCEL_IMPORT_CLIENT',
@@ -152,12 +158,14 @@ export class DebtsService {
         await this.prisma.debt.create({
           data: {
             clientId: client.id,
-            amount: item.amount,
+            amount: this.round2(item.amount),
             currency: item.currency,
+            dueDate: row.dueDate,
             status: 'ACTIVE',
-            comment: ['EXCEL_IMPORT', comment].filter(Boolean).join(': '),
+            comment: `EXCEL_IMPORT:QARZ13:ROW_${row.rowNumber}`,
           },
         });
+
         debtsCreated++;
         if (item.currency === 'USD') totalUSD += item.amount;
         else totalUZS += item.amount;
@@ -203,41 +211,42 @@ export class DebtsService {
     return XLSX.write(workbook, { bookType: 'xlsx', type: 'buffer' });
   }
 
+  private parseQarz13Rows(matrix: any[][]): ImportDebtItem[] {
+    const result: ImportDebtItem[] = [];
+
+    // QARZ13 format:
+    // 4-qator: A=Nomer, B=Klient, C=Tel, D=Srok, E=Dollar, F=Sum
+    // Data: 5-qator va pastga
+    for (let i = 4; i < matrix.length; i++) {
+      const row = matrix[i] || [];
+      const fullName = String(row[1] || '').trim();
+      const phone = this.normalizePhone(row[2]);
+      const dueDate = this.parseExcelDate(row[3]);
+      const usdAmount = this.safeNumber(row[4]);
+      const uzsAmount = this.safeNumber(row[5]);
+
+      if (!fullName && !phone && usdAmount <= 0 && uzsAmount <= 0) continue;
+      if (!fullName) continue;
+
+      result.push({
+        fullName,
+        phone,
+        dueDate,
+        usdAmount,
+        uzsAmount,
+        rowNumber: i + 1,
+      });
+    }
+
+    return result;
+  }
+
   private async findClient(companyId: string, fullName: string, normalizedPhone?: string) {
     if (normalizedPhone) {
       const byPhone = await this.prisma.client.findFirst({ where: { companyId, normalizedPhone } });
       if (byPhone) return byPhone;
     }
     return this.prisma.client.findFirst({ where: { companyId, fullName } });
-  }
-
-  private normalizeRow(row: Record<string, any>) {
-    const next: Record<string, any> = {};
-    for (const [key, value] of Object.entries(row || {})) {
-      const cleanKey = String(key || '')
-        .trim()
-        .toLowerCase()
-        .replace(/\s+/g, ' ')
-        .replace(/[’']/g, '')
-        .replace(/_/g, ' ');
-      next[cleanKey] = value;
-    }
-    return next;
-  }
-
-  private pick(row: Record<string, any>, keys: string[]) {
-    for (const key of keys) {
-      const direct = row[key.toLowerCase()];
-      if (direct !== undefined && direct !== null && String(direct).trim() !== '') return String(direct).trim();
-      const found = Object.entries(row).find(([rowKey]) => rowKey.includes(key.toLowerCase()));
-      if (found && String(found[1]).trim() !== '') return String(found[1]).trim();
-    }
-    return '';
-  }
-
-  private pickAmount(row: Record<string, any>, keys: string[]) {
-    const value = this.pick(row, keys);
-    return this.safeNumber(value);
   }
 
   private normalizePhone(value: any) {
@@ -252,11 +261,49 @@ export class DebtsService {
     return raw.includes('USD') || raw.includes('$') || raw.includes('ДОЛ') ? 'USD' : 'UZS';
   }
 
+  private parseExcelDate(value: any): Date | null {
+    if (!value) return null;
+
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+      return value;
+    }
+
+    const raw = String(value).trim();
+    if (!raw) return null;
+
+    const m = raw.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})$/);
+    if (m) {
+      const day = Number(m[1]);
+      const month = Number(m[2]) - 1;
+      let year = Number(m[3]);
+      if (year < 100) year += 2000;
+      const date = new Date(year, month, day);
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+
+    const parsed = new Date(raw);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
   private safeNumber(value: any) {
     if (value === undefined || value === null || value === '') return 0;
-    if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
-    const clean = String(value).replace(/\s/g, '').replace(/,/g, '.').replace(/[^0-9.\-]/g, '');
-    const normalized = clean.includes('.') ? clean.replace(/\.(?=.*\.)/g, '') : clean;
+    if (typeof value === 'number') return Number.isFinite(value) ? Math.abs(value) : 0;
+
+    const raw = String(value).trim();
+    if (!raw) return 0;
+
+    const clean = raw
+      .replace(/\u00A0/g, ' ')
+      .replace(/\s/g, '')
+      .replace(/,/g, '.')
+      .replace(/[^0-9.\-]/g, '');
+
+    if (!clean || clean === '-' || clean === '.') return 0;
+
+    const normalized = clean.includes('.')
+      ? clean.replace(/\.(?=.*\.)/g, '')
+      : clean;
+
     const n = Number(normalized);
     return Number.isFinite(n) ? Math.abs(n) : 0;
   }
