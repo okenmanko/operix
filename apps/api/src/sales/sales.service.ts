@@ -38,15 +38,121 @@ export class SalesService {
     return Number.isFinite(n) ? n : 0;
   }
 
+  private normalizeSearch(value: any) {
+    return String(value || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9а-яё]+/gi, "")
+      .trim();
+  }
+
+  private buildSearchText(product: any) {
+    return [
+      product?.name,
+      product?.productName,
+      product?.sku,
+      product?.model,
+      product?.barcode,
+      product?.category,
+      product?.brand,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+  }
+
+  private productScore(product: any, query: string) {
+    const raw = String(query || "").trim().toLowerCase();
+    const compactQuery = this.normalizeSearch(raw);
+    const text = this.buildSearchText(product);
+    const compactText = this.normalizeSearch(text);
+    const barcode = this.normalizeSearch(product?.barcode);
+    const sku = this.normalizeSearch(product?.sku || product?.model);
+    const terms = raw.split(/\s+/).map((x) => x.trim()).filter(Boolean);
+    const compactTerms = terms.map((x) => this.normalizeSearch(x)).filter(Boolean);
+
+    if (!raw) return 0;
+    if (barcode && barcode === compactQuery) return 1000;
+    if (sku && sku === compactQuery) return 950;
+    if (compactText.startsWith(compactQuery)) return 900;
+    if (text.includes(raw)) return 850;
+    if (compactText.includes(compactQuery)) return 800;
+    if (compactTerms.length && compactTerms.every((term) => compactText.includes(term))) return 740;
+    if (terms.length && terms.every((term) => text.includes(term))) return 700;
+    if (compactTerms.some((term) => compactText.includes(term))) return 420;
+    return 0;
+  }
+
   async searchProducts(companyId: string, q: string) {
     const clean = String(q || '').trim();
     if (clean.length < 1) return [];
 
-    const terms = clean
-      .toLowerCase()
-      .split(/\s+/)
-      .map((x) => x.trim())
-      .filter(Boolean);
+    const prismaAny = this.prisma as any;
+
+    const [products, balanceRows] = await Promise.all([
+      prismaAny.product.findMany({
+        where: { companyId, isActive: true },
+        take: 1200,
+        orderBy: { updatedAt: 'desc' },
+      }),
+      prismaAny.inventoryBalance?.findMany
+        ? prismaAny.inventoryBalance.findMany({
+            where: { companyId },
+            include: { product: true, warehouse: true },
+            take: 5000,
+            orderBy: { updatedAt: 'desc' },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const balanceByProduct = new Map<string, any[]>();
+    for (const row of Array.isArray(balanceRows) ? balanceRows : []) {
+      const productId = row?.productId || row?.product?.id;
+      if (!productId) continue;
+      const list = balanceByProduct.get(productId) || [];
+      list.push(row);
+      balanceByProduct.set(productId, list);
+    }
+
+    const results = (products || [])
+      .map((product: any) => {
+        const rows = balanceByProduct.get(product.id) || [];
+        const score = this.productScore(product, clean);
+        const stock = rows.length
+          ? rows.reduce((sum: number, row: any) => sum + this.safeNumber(row.quantity), 0)
+          : 0;
+        const firstBalance = rows.find((row: any) => this.safeNumber(row.quantity) > 0) || rows[0] || null;
+        const salePrice = this.safeNumber(
+          firstBalance?.price ?? firstBalance?.salePrice ?? product.salePrice ?? product.price ?? 0,
+        );
+        const costPrice = this.safeNumber(
+          firstBalance?.costPrice ?? product.costPrice ?? 0,
+        );
+
+        return {
+          id: product.id,
+          productId: product.id,
+          name: product.name,
+          productName: product.name,
+          sku: product.sku || product.model || '',
+          model: product.model || product.sku || '',
+          barcode: product.barcode || '',
+          category: product.category || '',
+          warehouseName: firstBalance?.warehouse?.name || '',
+          stockItemId: null,
+          stock,
+          salePrice,
+          costPrice,
+          currency: 'USD',
+          _score: score,
+        };
+      })
+      .filter((item: any) => item._score > 0)
+      .sort((a: any, b: any) => b._score - a._score || this.safeNumber(b.stock) - this.safeNumber(a.stock) || String(a.name).localeCompare(String(b.name)))
+      .slice(0, 25)
+      .map(({ _score, ...item }: any) => item);
+
+    // Fallback: old stock-item based search if product catalogue did not return anything.
+    if (results.length) return results;
 
     const rows = await this.prisma.product.findMany({
       where: {
@@ -58,13 +164,6 @@ export class SalesService {
           { model: { contains: clean, mode: 'insensitive' } },
           { barcode: { contains: clean, mode: 'insensitive' } },
           { category: { contains: clean, mode: 'insensitive' } },
-          ...terms.flatMap((term) => [
-            { name: { contains: term, mode: 'insensitive' } },
-            { sku: { contains: term, mode: 'insensitive' } },
-            { model: { contains: term, mode: 'insensitive' } },
-            { barcode: { contains: term, mode: 'insensitive' } },
-            { category: { contains: term, mode: 'insensitive' } },
-          ]),
         ],
       } as any,
       include: {
@@ -75,7 +174,7 @@ export class SalesService {
           orderBy: { createdAt: 'asc' },
         },
       } as any,
-      take: 30,
+      take: 25,
       orderBy: { updatedAt: 'desc' },
     } as any);
 
