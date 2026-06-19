@@ -3,8 +3,8 @@ import Providers from "./components/Providers";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Operix",
-  description: "Business OS",
+  title: "Qanot",
+  description: "Qanot Business OS",
 };
 
 const themeScript = `

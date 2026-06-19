@@ -1,12 +1,10 @@
-@import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap");
 @import "tailwindcss";
 
 :root {
   --bg: #f7f9fc;
   --card: #ffffff;
   --card-2: #f8fafc;
-  --soft: #f8fafc;
-  --soft-card: #f8fafc;
   --line: #e7edf5;
   --line-soft: #edf2f7;
   --text: #111827;
@@ -26,8 +24,8 @@
   --success-bg: #ecfdf3;
   --success-line: #bbf7d0;
   --success-text: #047857;
-  --shadow-card: 0 14px 38px rgba(15, 23, 42, 0.035);
-  --shadow-soft: 0 8px 22px rgba(15, 23, 42, 0.028);
+  --shadow-card: 0 16px 40px rgba(15, 23, 42, 0.045);
+  --shadow-soft: 0 8px 22px rgba(15, 23, 42, 0.035);
 }
 
 html.dark,
@@ -35,8 +33,6 @@ html[data-theme="dark"] {
   --bg: #070d18;
   --card: #101827;
   --card-2: #0d1828;
-  --soft: #0d1828;
-  --soft-card: #0d1828;
   --line: #22314a;
   --line-soft: #1d2a40;
   --text: #f8fafc;
@@ -90,7 +86,7 @@ html.dark ::selection { background: #1e3a8a; color: #e0e7ff; }
   border: 1px solid var(--line);
   background: var(--card);
   color: var(--text);
-  border-radius: 22px;
+  border-radius: 28px;
   box-shadow: var(--shadow-card);
 }
 
@@ -224,15 +220,68 @@ html.dark .shadow-[0_20px_55px_rgba\(15\,23\,42\,0\.045\)] { box-shadow: var(--s
 }
 
 
-/* Qanot final layout discipline */
-.qanot-grid { display: grid; gap: 16px; }
-.qanot-kpi { min-height: 126px; }
-.qanot-table { width: 100%; border-collapse: separate; border-spacing: 0; }
-.qanot-table th { padding: 12px 14px; font-size: 10px; font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: var(--muted-2); background: var(--soft-card); }
-.qanot-table td { padding: 13px 14px; border-top: 1px solid var(--line-soft); font-size: 13px; }
-.qanot-pill { display: inline-flex; align-items: center; height: 28px; border-radius: 999px; padding: 0 10px; background: var(--soft-card); color: var(--muted); font-size: 12px; }
+/* QANOT 36: clean typography and disciplined spacing */
+html, body {
+  text-rendering: geometricPrecision;
+  -webkit-font-smoothing: antialiased;
+  font-kerning: normal;
+  word-spacing: 0.02em;
+}
+
+.qanot-page {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 92% 0%, rgba(49, 94, 251, 0.075), transparent 28%),
+    linear-gradient(180deg, color-mix(in srgb, var(--bg) 94%, white 6%), var(--bg));
+  color: var(--text);
+}
+
+.qanot-card {
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--text);
+  border-radius: 24px;
+  box-shadow: var(--shadow-card);
+}
+
+.qanot-title {
+  font-size: 28px;
+  line-height: 1.12;
+  font-weight: 650;
+  letter-spacing: -0.07em;
+  color: var(--text);
+}
+
+.qanot-eyebrow {
+  font-size: 11px;
+  line-height: 1.2;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+}
+
+.qanot-small-button {
+  display: inline-flex;
+  height: 38px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--card-2);
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  transition: 0.18s ease;
+  white-space: nowrap;
+}
+
+.qanot-small-button:hover {
+  background: var(--hover);
+  color: var(--blue);
+}
 
 @media (max-width: 720px) {
-  .qanot-table-wrap { overflow-x: auto; }
-  .qanot-table { min-width: 720px; }
+  .qanot-title { font-size: 24px; }
 }

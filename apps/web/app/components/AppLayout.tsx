@@ -5,6 +5,7 @@ import Sidebar from "./Sidebar";
 import LangSwitcher from "./LangSwitcher";
 import ThemeSwitcher from "./ThemeSwitcher";
 import { clearAuth } from "../lib/api";
+import { useI18n } from "../lib/i18n";
 
 export default function AppLayout({
   title,
@@ -15,24 +16,27 @@ export default function AppLayout({
   subtitle?: string;
   children: ReactNode;
 }) {
+  const { t } = useI18n();
+
   return (
-    <main className="premium-page min-h-screen text-[var(--text)]">
+    <main className="qanot-page min-h-screen text-[var(--text)]">
       <Sidebar />
-      <section className="ml-[224px] min-h-screen px-7 py-6 max-lg:ml-0 max-lg:px-5 max-sm:px-4 max-sm:py-4">
-        <div className="mx-auto max-w-[1320px]">
-          <div className="mb-6 flex items-start justify-between gap-4 max-md:flex-col">
-            <div>
-              <h1 className="text-[34px] font-medium tracking-[-0.075em] text-[var(--text)] max-md:text-[28px]">
+
+      <section className="ml-[216px] min-h-screen px-8 py-7 max-lg:ml-0 max-lg:px-5 max-sm:px-4 max-sm:py-5">
+        <div className="mx-auto max-w-[1420px]">
+          <div className="mb-7 flex items-start justify-between gap-5 max-md:flex-col">
+            <div className="min-w-0">
+              <h1 className="text-[34px] font-semibold leading-[1.05] tracking-[-0.075em] text-[var(--text)] max-sm:text-[28px]">
                 {title}
               </h1>
               {subtitle ? (
-                <p className="mt-2 max-w-2xl text-[14px] leading-6 text-[var(--muted)]">
+                <p className="mt-2 max-w-[760px] text-[14px] leading-6 text-[var(--muted)]">
                   {subtitle}
                 </p>
               ) : null}
             </div>
 
-            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 max-md:w-full max-md:justify-start">
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 max-sm:w-full max-sm:justify-start">
               <LangSwitcher />
               <ThemeSwitcher />
               <button
@@ -40,9 +44,9 @@ export default function AppLayout({
                   clearAuth();
                   window.location.href = "/login";
                 }}
-                className="h-10 rounded-[14px] border border-[var(--line)] bg-[var(--card)] px-3.5 text-[12px] font-normal text-[var(--muted)] transition hover:bg-[var(--hover)] hover:text-[var(--text)]"
+                className="h-10 rounded-[14px] border border-[var(--line)] bg-[var(--card)] px-4 text-[13px] font-medium text-[var(--muted)] transition hover:bg-[var(--hover)] hover:text-[var(--text)] max-sm:flex-1"
               >
-                Chiqish
+                {t("logout")}
               </button>
             </div>
           </div>
