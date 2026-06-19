@@ -1,9 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import AppLayout from "../components/AppLayout";
-import { apiJson, money, num } from "../lib/api";
+import { apiJson } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 
 type Product = {
@@ -33,17 +32,6 @@ type Product = {
   }>;
 };
 
-type Warehouse = {
-  id: string;
-  name: string;
-  productCount?: number;
-  productTypes?: number;
-  totalQuantity?: number;
-  quantity?: number;
-  totalValue?: number;
-  value?: number;
-};
-
 type Summary = {
   products?: number;
   productsCount?: number;
@@ -58,7 +46,6 @@ export default function SkladPage() {
   const { t } = useI18n();
   const [summary, setSummary] = useState<Summary>({});
   const [products, setProducts] = useState<Product[]>([]);
-  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [query, setQuery] = useState("");
   const [openId, setOpenId] = useState("");
   const [error, setError] = useState("");
@@ -66,17 +53,15 @@ export default function SkladPage() {
   async function load() {
     try {
       setError("");
-      const [summaryData, productData, warehouseData] = await Promise.all([
+      const [summaryData, productData] = await Promise.all([
         apiJson<Summary>("/inventory/summary").catch(() => ({})),
         apiJson<Product[]>("/inventory/products").catch(() => []),
-        apiJson<Warehouse[]>("/inventory/warehouses").catch(() => []),
       ]);
 
       setSummary(summaryData || {});
       setProducts(Array.isArray(productData) ? productData : []);
-      setWarehouses(Array.isArray(warehouseData) ? warehouseData : []);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : t("skladLoadError"));
+      setError(err instanceof Error ? err.message : t("skladLoadError", "Sklad yuklanmadi"));
     }
   }
 
@@ -97,7 +82,6 @@ export default function SkladPage() {
   }, [products, query]);
 
   const totalProducts = Number(summary.productsCount || summary.products || products.length || 0);
-  const totalWarehouses = Number(summary.warehousesCount || summary.warehouses || warehouses.length || 0);
   const totalQuantity = Number(
     summary.totalQuantity || products.reduce((sum, product) => sum + Number(product.stock || 0), 0),
   );
@@ -106,176 +90,139 @@ export default function SkladPage() {
       summary.totalValue ||
       products.reduce((sum, product) => sum + Number(product.stockSaleValueUSD || product.stockValue || 0), 0),
   );
+  const categoryCount = new Set(products.map((item) => cleanCategory(item.category)).filter(Boolean)).size;
 
   return (
-    <AppLayout title={t("sklad")} subtitle={t("skladSubtitleClean")}>
-      {error ? <div className="mb-5 rounded-[22px] bg-red-50 px-5 py-4 text-[14px] text-red-600">{error}</div> : null}
+    <AppLayout
+      title={t("sklad", "Sklad")}
+      subtitle={t(
+        "skladSubtitleFinal",
+        "Tovar katalogi: nomi, modeli, kategoriyasi, prixod narxi, sotuv narxi va qoldiq.",
+      )}
+    >
+      {error ? (
+        <div className="mb-5 rounded-[22px] bg-red-50 px-5 py-4 text-[14px] text-red-600">
+          {error}
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-4 gap-4 max-xl:grid-cols-2 max-md:grid-cols-1">
-        <Stat label={t("productCount")} value={`${num(totalProducts)} ${t("pcsShort")}`} />
-        <Stat label={t("warehouseCount")} value={`${num(totalWarehouses)} ${t("pcsShort")}`} />
-        <Stat label={t("stockQty")} value={`${num(totalQuantity)} ${t("unitPcs")}`} />
-        <Stat label={t("warehouseValue")} value={money(totalValue, "USD")} />
+        <Stat label={t("productCount", "Tovarlar")} value={`${fmt(totalProducts)} ta`} />
+        <Stat label={t("category", "Kategoriya")} value={`${fmt(categoryCount)} ta`} />
+        <Stat label={t("stockQty", "Qoldiq") } value={`${fmt(totalQuantity)} dona`} />
+        <Stat label={t("warehouseValue", "Sklad qiymati")} value={usd(totalValue)} />
       </div>
 
-      <div className="mt-5 grid grid-cols-[1fr_320px] gap-5 max-2xl:grid-cols-1">
-        <section className="premium-card p-6">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div>
-              <h2 className="text-[26px] font-semibold tracking-[-0.06em]">{t("productCatalog")}</h2>
-              <p className="mt-1 text-[14px] text-[var(--muted)]">{t("productCatalogSubtitle")}</p>
-            </div>
-
-            <div className="flex items-center gap-3 max-md:w-full max-md:flex-col">
-              <input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder={t("searchProductPlaceholder")}
-                className="premium-input h-11 w-[300px] max-md:w-full"
-              />
-              <Link href="/integrations" className="premium-button premium-button-primary max-md:w-full">
-                {t("syncMoySklad")}
-              </Link>
-            </div>
+      <section className="premium-card mt-5 p-6">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h2 className="text-[26px] font-semibold tracking-[-0.055em] text-[var(--text)]">
+              {t("productCatalog", "Tovar katalogi")}
+            </h2>
+            <p className="mt-1 text-[14px] text-[var(--muted)]">
+              {t("productCatalogSubtitleFinal", "Faqat kerakli ustunlar: tovar, model, kategoriya, qoldiq, prixod va sotuv narxi.")}
+            </p>
           </div>
 
-          <div className="mt-5 overflow-hidden rounded-[24px] border border-[var(--line-soft)] bg-[var(--card)]">
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[1060px] text-left text-[14px]">
-                <thead className="bg-[var(--soft-card)] text-[11px] uppercase tracking-[0.13em] text-[var(--muted-2)]">
-                  <tr>
-                    <th className="w-[320px] px-4 py-3 font-normal">{t("productName")}</th>
-                    <th className="w-[160px] px-4 py-3 font-normal">{t("modelSku")}</th>
-                    <th className="w-[160px] px-4 py-3 font-normal">{t("category")}</th>
-                    <th className="w-[105px] px-4 py-3 text-right font-normal">{t("quantity")}</th>
-                    <th className="w-[130px] px-4 py-3 text-right font-normal">{t("purchasePrice")}</th>
-                    <th className="w-[130px] px-4 py-3 text-right font-normal">{t("salePrice")}</th>
-                    <th className="w-[140px] px-4 py-3 text-right font-normal">{t("stockValue")}</th>
-                    <th className="w-[90px] px-4 py-3 text-right font-normal">{t("details")}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredProducts.map((product) => {
-                    const qty = Number(product.stock || 0);
-                    const cost = Number(product.costPrice || 0);
-                    const sale = Number(product.salePrice ?? product.price ?? 0);
-                    const value = Number(product.stockSaleValueUSD || product.stockValue || qty * sale || 0);
-                    const isOpen = openId === product.id;
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={t("searchProductPlaceholder", "Tovar, model, shtrixkod yoki kategoriya...")}
+            className="premium-input h-11 w-[360px] max-md:w-full"
+          />
+        </div>
 
-                    return (
-                      <Fragment key={product.id}>
-                        <tr className="border-t border-[var(--line-soft)] transition hover:bg-[var(--soft-card)]">
-                          <td className="px-4 py-3">
-                            <button
-                              type="button"
-                              onClick={() => setOpenId(isOpen ? "" : product.id)}
-                              className="max-w-[300px] text-left font-semibold leading-5 text-[var(--text)]"
-                            >
-                              {product.name || "—"}
-                            </button>
-                            <p className="mt-1 text-[12px] text-[var(--muted)]">{product.barcode || t("noBarcode")}</p>
-                          </td>
-                          <td className="px-4 py-3 text-[var(--muted)]">{product.sku || "—"}</td>
-                          <td className="px-4 py-3 text-[var(--muted)]">{product.category || "—"}</td>
-                          <td className="px-4 py-3 text-right font-medium">{num(qty)} {t("unitPcs")}</td>
-                          <td className="px-4 py-3 text-right">{money(cost, "USD")}</td>
-                          <td className="px-4 py-3 text-right font-semibold">{money(sale, "USD")}</td>
-                          <td className="px-4 py-3 text-right font-semibold">{money(value, "USD")}</td>
-                          <td className="px-4 py-3 text-right">
-                            <button
-                              type="button"
-                              onClick={() => setOpenId(isOpen ? "" : product.id)}
-                              className="rounded-full bg-[var(--soft-card)] px-3 py-1 text-[12px] text-[var(--muted)]"
-                            >
-                              {isOpen ? "↑" : "↓"}
-                            </button>
+        <div className="mt-5 overflow-hidden rounded-[24px] bg-[var(--card)] shadow-[var(--shadow-soft)] ring-1 ring-[var(--line-soft)]">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[920px] text-left text-[14px]">
+              <thead className="bg-[var(--soft-card)] text-[11px] uppercase tracking-[0.13em] text-[var(--muted-2)]">
+                <tr>
+                  <th className="w-[34%] px-5 py-4 font-normal">{t("productName", "Tovar nomi")}</th>
+                  <th className="w-[16%] px-5 py-4 font-normal">{t("modelSku", "Model / SKU")}</th>
+                  <th className="w-[16%] px-5 py-4 font-normal">{t("category", "Kategoriya")}</th>
+                  <th className="w-[10%] px-5 py-4 text-right font-normal">{t("quantity", "Qoldiq")}</th>
+                  <th className="w-[12%] px-5 py-4 text-right font-normal">{t("purchasePrice", "Prixod")}</th>
+                  <th className="w-[12%] px-5 py-4 text-right font-normal">{t("salePrice", "Sotuv")}</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {filteredProducts.map((product) => {
+                  const qty = Number(product.stock || 0);
+                  const cost = Number(product.costPrice || 0);
+                  const sale = Number(product.salePrice ?? product.price ?? 0);
+                  const isOpen = openId === product.id;
+                  const category = cleanCategory(product.category);
+
+                  return (
+                    <Fragment key={product.id}>
+                      <tr
+                        onClick={() => setOpenId(isOpen ? "" : product.id)}
+                        className="cursor-pointer border-t border-[var(--line-soft)] transition hover:bg-[var(--soft-card)]"
+                      >
+                        <td className="px-5 py-4">
+                          <div className="line-clamp-2 max-w-[440px] font-semibold leading-5 text-[var(--text)]">
+                            {product.name || "—"}
+                          </div>
+                          <div className="mt-1 text-[12px] text-[var(--muted)]">
+                            {product.barcode || t("noBarcode", "Shtrixkod yo‘q")}
+                          </div>
+                        </td>
+                        <td className="px-5 py-4 text-[var(--muted)]">{product.sku || "—"}</td>
+                        <td className="px-5 py-4">
+                          <span className="inline-flex rounded-full bg-[var(--soft-card)] px-3 py-1 text-[12px] font-medium text-[var(--text)] ring-1 ring-[var(--line-soft)]">
+                            {category || "—"}
+                          </span>
+                        </td>
+                        <td className="whitespace-nowrap px-5 py-4 text-right font-semibold text-[var(--text)]">
+                          {fmt(qty)} dona
+                        </td>
+                        <td className="whitespace-nowrap px-5 py-4 text-right text-[var(--text)]">{usd(cost)}</td>
+                        <td className="whitespace-nowrap px-5 py-4 text-right font-semibold text-[var(--text)]">{usd(sale)}</td>
+                      </tr>
+
+                      {isOpen ? (
+                        <tr className="border-t border-[var(--line-soft)] bg-[var(--soft-card)]">
+                          <td colSpan={6} className="p-4">
+                            <div className="grid gap-2">
+                              {(product.warehouses || []).map((row, index) => (
+                                <div
+                                  key={`${product.id}-${row.warehouseName}-${index}`}
+                                  className="grid grid-cols-5 gap-3 rounded-[18px] bg-[var(--card)] px-4 py-3 text-[13px] ring-1 ring-[var(--line-soft)] max-lg:grid-cols-2"
+                                >
+                                  <Mini label={t("warehouse", "Ombor")} value={row.warehouseName || "—"} />
+                                  <Mini label={t("quantity", "Qoldiq")} value={`${fmt(row.quantity || 0)} dona`} />
+                                  <Mini label={t("purchasePrice", "Prixod")} value={usd(row.costPrice || cost)} />
+                                  <Mini label={t("salePrice", "Sotuv")} value={usd(row.salePrice || sale)} />
+                                  <Mini label={t("stockValue", "Qiymat")} value={usd(row.saleValue || row.value || 0)} />
+                                </div>
+                              ))}
+
+                              {!product.warehouses?.length ? (
+                                <div className="rounded-[18px] bg-[var(--card)] p-4 text-[13px] text-[var(--muted)] ring-1 ring-[var(--line-soft)]">
+                                  {t("noWarehouseForProduct", "Bu tovar bo‘yicha ombor qoldiq topilmadi.")}
+                                </div>
+                              ) : null}
+                            </div>
                           </td>
                         </tr>
+                      ) : null}
+                    </Fragment>
+                  );
+                })}
 
-                        {isOpen ? (
-                          <tr className="border-t border-[var(--line-soft)] bg-[var(--soft-card)]">
-                            <td colSpan={8} className="p-4">
-                              <div className="grid gap-2">
-                                {(product.warehouses || []).map((row, index) => (
-                                  <div
-                                    key={`${product.id}-${row.warehouseName}-${index}`}
-                                    className="grid grid-cols-7 gap-3 rounded-[18px] bg-[var(--card)] px-4 py-3 text-[13px] max-xl:grid-cols-3 max-md:grid-cols-2"
-                                  >
-                                    <Mini label={t("warehouse")} value={row.warehouseName || "—"} />
-                                    <Mini label={t("quantity")} value={`${num(row.quantity || 0)} ${t("unitPcs")}`} />
-                                    <Mini label={t("reserve")} value={num(row.reserve || 0)} />
-                                    <Mini label={t("inTransit")} value={num(row.inTransit || 0)} />
-                                    <Mini label={t("purchasePrice")} value={money(row.costPrice || cost, "USD")} />
-                                    <Mini label={t("salePrice")} value={money(row.salePrice || sale, "USD")} />
-                                    <Mini label={t("stockValue")} value={money(row.saleValue || row.value || 0, "USD")} />
-                                  </div>
-                                ))}
-                                {!product.warehouses?.length ? (
-                                  <div className="rounded-[18px] bg-[var(--card)] p-4 text-[13px] text-[var(--muted)]">
-                                    {t("noWarehouseForProduct")}
-                                  </div>
-                                ) : null}
-                              </div>
-                            </td>
-                          </tr>
-                        ) : null}
-                      </Fragment>
-                    );
-                  })}
-
-                  {!filteredProducts.length ? (
-                    <tr>
-                      <td colSpan={8} className="p-10 text-center text-[var(--muted)]">
-                        {t("noProducts")}
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+                {!filteredProducts.length ? (
+                  <tr>
+                    <td colSpan={6} className="p-10 text-center text-[var(--muted)]">
+                      {t("noProducts", "Tovar topilmadi.")}
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
           </div>
-        </section>
-
-        <section className="premium-card p-6">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h2 className="text-[24px] font-semibold tracking-[-0.06em]">{t("warehouseList")}</h2>
-              <p className="mt-1 text-[13px] text-[var(--muted)]">{t("warehouseListSubtitle")}</p>
-            </div>
-            <Link href="/warehouses" className="premium-button premium-button-soft">
-              {t("open")}
-            </Link>
-          </div>
-
-          <div className="mt-5 space-y-3">
-            {warehouses.slice(0, 10).map((warehouse) => (
-              <Link
-                key={warehouse.id}
-                href={`/warehouses/${encodeURIComponent(warehouse.id)}`}
-                className="block rounded-[22px] bg-[var(--soft-card)] p-4 transition hover:-translate-y-0.5 hover:shadow-[var(--shadow-soft)]"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="font-semibold leading-5 text-[var(--text)]">{warehouse.name}</p>
-                    <p className="mt-1 text-[12px] text-[var(--muted)]">
-                      {num(warehouse.productCount || warehouse.productTypes || 0)} {t("productSmall")} · {money(warehouse.totalValue || warehouse.value || 0, "USD")}
-                    </p>
-                  </div>
-                  <span className="whitespace-nowrap text-[14px] font-semibold text-[var(--text)]">
-                    {num(warehouse.totalQuantity || warehouse.quantity || 0)} {t("unitPcs")}
-                  </span>
-                </div>
-              </Link>
-            ))}
-
-            {!warehouses.length ? (
-              <div className="rounded-[22px] bg-[var(--soft-card)] p-5 text-[14px] text-[var(--muted)]">
-                {t("noWarehouses")}
-              </div>
-            ) : null}
-          </div>
-        </section>
-      </div>
+        </div>
+      </section>
     </AppLayout>
   );
 }
@@ -284,7 +231,9 @@ function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="premium-card p-5">
       <p className="text-[13px] text-[var(--muted)]">{label}</p>
-      <p className="mt-4 whitespace-nowrap text-[27px] font-semibold tracking-[-0.06em] text-[var(--text)]">{value}</p>
+      <p className="mt-4 whitespace-nowrap text-[27px] font-semibold tracking-[-0.055em] text-[var(--text)]">
+        {value}
+      </p>
     </div>
   );
 }
@@ -296,4 +245,31 @@ function Mini({ label, value }: { label: string; value: React.ReactNode }) {
       <p className="mt-1 line-clamp-1 text-[13px] font-medium text-[var(--text)]">{value}</p>
     </div>
   );
+}
+
+function fmt(value: any) {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n)) return "0";
+  return new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(n);
+}
+
+function usd(value: any) {
+  return `${fmt(value)} USD`;
+}
+
+function cleanCategory(value: any) {
+  const raw = String(value || "").trim();
+  const upper = raw.toUpperCase();
+
+  if (!raw) return "";
+  if (upper.includes("КОНД") || upper.includes("CONDITION") || upper.includes("KOND")) return "Konditsioner";
+  if (upper.includes("ТЕЛЕ") || upper.includes("TV") || upper.includes("LED")) return "Televizor";
+  if (upper.includes("СТИР") || upper.includes("KIR") || upper.includes("WASH")) return "Kir yuvish";
+  if (upper.includes("ХОЛ") || upper.includes("МОРОЗ") || upper.includes("FRIDGE")) return "Sovutgich";
+  if (upper.includes("ПЫЛ") || upper.includes("CHANG") || upper.includes("VACUUM")) return "Changyutgich";
+  if (upper.includes("МИКРО") || upper.includes("ДУХ") || upper.includes("ПЛИТ") || upper.includes("OSHX")) return "Oshxona";
+  if (upper.includes("АУДИО") || upper.includes("SOUND") || upper.includes("KALONKA")) return "Audio";
+  if (upper.includes("КОМП") || upper.includes("NOTEBOOK") || upper.includes("LAPTOP")) return "Kompyuter";
+
+  return raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase();
 }
