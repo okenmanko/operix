@@ -1,76 +1,69 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import AppLayout from "../components/AppLayout";
-import { apiJson, dateText, money, num } from "../lib/api";
+import { apiJson, dateText, money } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 
-type Dashboard = { todayPaymentsUZS?: number; todayPaymentsUSD?: number; totalPaidUZS?: number; totalPaidUSD?: number; paymentsCount?: number; remainingUZS?: number; remainingUSD?: number };
-type Payment = { id: string; amount: number; currency?: string; method?: string; comment?: string; createdAt?: string; debt?: { client?: { fullName?: string; phone?: string } } };
+type Dashboard = { todayPaymentsUZS?: number; todayPaymentsUSD?: number; totalPaidUZS?: number; totalPaidUSD?: number; recentPayments?: any[] };
 
 export default function FinancePage() {
   const { t } = useI18n();
-  const [stats, setStats] = useState<Dashboard>({});
-  const [payments, setPayments] = useState<Payment[]>([]);
+  const [data, setData] = useState<Dashboard>({});
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    apiJson<Dashboard>("/dashboard").then((x) => setStats(x || {})).catch(() => null);
-    apiJson<Payment[]>("/payments").then((x) => setPayments(Array.isArray(x) ? x : [])).catch(() => null);
+    apiJson<Dashboard>("/dashboard").then(setData).catch((e) => setError(e.message || "Finance yuklanmadi"));
   }, []);
 
-  const recent = useMemo(() => payments.slice(0, 8), [payments]);
+  const payments = useMemo(() => Array.isArray(data.recentPayments) ? data.recentPayments : [], [data.recentPayments]);
 
   return (
     <AppLayout title={t("finance")} subtitle={t("financeSubtitle")}>
-      <div className="grid grid-cols-4 gap-4 max-xl:grid-cols-2 max-md:grid-cols-1">
-        <Stat label={t("todayUZS")} value={money(stats.todayPaymentsUZS || 0, "UZS")} />
-        <Stat label={t("todayUSD")} value={money(stats.todayPaymentsUSD || 0, "USD")} />
-        <Stat label={t("totalPaidUZS")} value={money(stats.totalPaidUZS || 0, "UZS")} />
-        <Stat label={t("totalPaidUSD")} value={money(stats.totalPaidUSD || 0, "USD")} />
+      {error ? <div className="mb-5 rounded-[18px] bg-red-50 px-4 py-3 text-[13px] text-red-600">{error}</div> : null}
+
+      <div className="mb-5 grid grid-cols-4 gap-4 max-xl:grid-cols-2 max-md:grid-cols-1">
+        <Stat label={t("todayUZS")} value={money(data.todayPaymentsUZS || 0, "UZS")} />
+        <Stat label={t("todayUSD")} value={money(data.todayPaymentsUSD || 0, "USD")} />
+        <Stat label={t("totalPaidUZS")} value={money(data.totalPaidUZS || 0, "UZS")} />
+        <Stat label={t("totalPaidUSD")} value={money(data.totalPaidUSD || 0, "USD")} />
       </div>
 
-      <div className="mt-5 grid grid-cols-[0.9fr_1.2fr] gap-5 max-xl:grid-cols-1">
-        <section className="premium-card p-6">
-          <h2 className="text-[26px] font-semibold tracking-[-0.06em]">{t("financeActions")}</h2>
+      <div className="grid grid-cols-[0.8fr_1.2fr] gap-5 max-xl:grid-cols-1">
+        <div className="premium-card p-6">
+          <h2 className="text-[24px] font-bold tracking-[-0.05em]">{t("financeActions")}</h2>
           <div className="mt-5 grid gap-3">
-            <Link className="premium-button premium-button-primary justify-start" href="/debts">{t("enterPayment")}</Link>
-            <Link className="premium-button premium-button-soft justify-start" href="/cashflow">{t("incomeExpense")}</Link>
-            <Link className="premium-button premium-button-soft justify-start" href="/reports">{t("dailyReport")}</Link>
+            <a href="/debts" className="premium-button premium-button-primary justify-start">{t("enterPayment")}</a>
+            <a href="/payments" className="premium-button premium-button-soft justify-start">{t("recentPayments")}</a>
+            <a href="/reports" className="premium-button premium-button-soft justify-start">{t("dailyReport")}</a>
           </div>
+          <div className="mt-6 soft-card p-4">
+            <h3 className="font-bold">{t("accountantChecklist")}</h3>
+            <ul className="mt-3 space-y-2 text-[14px] text-[var(--muted)]">
+              <li>• {t("checklist1")}</li>
+              <li>• {t("checklist2")}</li>
+              <li>• {t("checklist3")}</li>
+            </ul>
+          </div>
+        </div>
 
-          <div className="mt-6 soft-card p-5">
-            <h3 className="text-[20px] font-semibold tracking-[-0.05em]">{t("accountantChecklist")}</h3>
-            <div className="mt-4 space-y-3 text-[14px] text-[var(--muted)]">
-              <Check text={t("checklist1")} />
-              <Check text={t("checklist2")} />
-              <Check text={t("checklist3")} />
-            </div>
+        <div className="premium-card p-6">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <h2 className="text-[24px] font-bold tracking-[-0.05em]">{t("recentPayments")}</h2>
+            <span className="badge">{payments.length}</span>
           </div>
-        </section>
-
-        <section className="premium-card p-6">
-          <div className="mb-5 flex items-center justify-between gap-4">
-            <h2 className="text-[26px] font-semibold tracking-[-0.06em]">{t("recentPayments")}</h2>
-            <span className="text-[14px] text-[var(--muted)]">{num(payments.length)} ta</span>
+          <div className="table-wrap qanot-scroll">
+            <table className="premium-table min-w-[720px]">
+              <thead><tr><th>{t("client")}</th><th>{t("method")}</th><th className="cell-num">{t("amount")}</th><th>{t("today")}</th></tr></thead>
+              <tbody>
+                {payments.map((p, i) => <tr key={p.id || i}><td>{p.debt?.client?.fullName || p.clientName || "—"}</td><td className="muted">{p.method || "—"}</td><td className="cell-num font-semibold">{money(p.amount || 0, p.currency || "UZS")}</td><td className="muted">{dateText(p.createdAt)}</td></tr>)}
+                {!payments.length ? <tr><td colSpan={4} className="p-10 text-center text-[var(--muted)]">{t("noRecentPayments")}</td></tr> : null}
+              </tbody>
+            </table>
           </div>
-          <div className="space-y-3">
-            {recent.map((payment) => (
-              <div key={payment.id} className="qanot-row grid grid-cols-[1fr_auto] gap-4 p-4">
-                <div>
-                  <p className="font-semibold">{payment.debt?.client?.fullName || payment.debt?.client?.phone || "—"}</p>
-                  <p className="mt-1 text-[13px] text-[var(--muted)]">{dateText(payment.createdAt)} · {payment.method || t("cash")}</p>
-                </div>
-                <b className="whitespace-nowrap text-[15px] font-semibold">{money(payment.amount, payment.currency || "UZS")}</b>
-              </div>
-            ))}
-            {!recent.length ? <div className="soft-card p-6 text-[var(--muted)]">{t("noRecentPayments")}</div> : null}
-          </div>
-        </section>
+        </div>
       </div>
     </AppLayout>
   );
 }
-
-function Stat({ label, value }: { label: string; value: string }) { return <div className="premium-card p-5"><p className="text-[13px] text-[var(--muted)]">{label}</p><p className="mt-4 whitespace-nowrap text-[28px] font-semibold tracking-[-0.06em]">{value}</p></div>; }
-function Check({ text }: { text: string }) { return <div className="flex gap-3"><span className="mt-1 h-2 w-2 rounded-full bg-[var(--blue)]" /><span>{text}</span></div>; }
+function Stat({ label, value }: { label: string; value: string }) { return <div className="premium-card p-5"><p className="text-[13px] text-[var(--muted)]">{label}</p><p className="value mt-4 text-[28px] font-bold">{value}</p></div>; }
