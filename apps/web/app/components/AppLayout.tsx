@@ -2,7 +2,6 @@
 
 import type { ReactNode } from "react";
 import Sidebar from "./Sidebar";
-import LangSwitcher from "./LangSwitcher";
 import ThemeSwitcher from "./ThemeSwitcher";
 import { clearAuth } from "../lib/api";
 import { useI18n } from "../lib/i18n";
@@ -37,14 +36,13 @@ export default function AppLayout({
             </div>
 
             <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 max-sm:w-full max-sm:justify-start">
-              <LangSwitcher />
               <ThemeSwitcher />
               <button
                 onClick={() => {
                   clearAuth();
                   window.location.href = "/login";
                 }}
-                className="h-10 rounded-[14px] border border-[var(--line)] bg-[var(--card)] px-4 text-[13px] font-medium text-[var(--muted)] transition hover:bg-[var(--hover)] hover:text-[var(--text)] max-sm:flex-1"
+                className="qanot-button qanot-button-soft h-10 min-h-10 px-4 text-[13px] max-sm:flex-1"
               >
                 {t("logout")}
               </button>

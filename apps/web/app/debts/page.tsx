@@ -5,14 +5,15 @@ import {
   CheckCircle2,
   ChevronDown,
   Download,
-  FileSpreadsheet,
   Plus,
   Search,
   Upload,
   X,
 } from "lucide-react";
 import AppLayout from "../components/AppLayout";
+import CustomSelect from "../components/ui/CustomSelect";
 import { apiJson, money, num } from "../lib/api";
+import { useI18n } from "../lib/i18n";
 
 type Client = {
   id: string;
@@ -57,15 +58,16 @@ type ImportResult = {
 
 type Filter = "open" | "overdue" | "paid" | "closed" | "all";
 
-const FILTERS: Array<{ key: Filter; label: string }> = [
-  { key: "open", label: "Ochiq" },
-  { key: "overdue", label: "Kechikkan" },
-  { key: "paid", label: "To‘langan" },
-  { key: "closed", label: "Yopilgan" },
-  { key: "all", label: "Hammasi" },
+const FILTERS: Array<{ key: Filter; labelKey: string; fallback: string }> = [
+  { key: "open", labelKey: "open", fallback: "Ochiq" },
+  { key: "overdue", labelKey: "overdue", fallback: "Kechikkan" },
+  { key: "paid", labelKey: "paid", fallback: "To‘langan" },
+  { key: "closed", labelKey: "closed", fallback: "Yopilgan" },
+  { key: "all", labelKey: "all", fallback: "Hammasi" },
 ];
 
 export default function DebtsPage() {
+  const { t } = useI18n();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [debts, setDebts] = useState<Debt[]>([]);
   const [query, setQuery] = useState("");
@@ -89,7 +91,7 @@ export default function DebtsPage() {
       const data = await apiJson<Debt[]>("/debts");
       setDebts(Array.isArray(data) ? data : []);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Qarzlar yuklanmadi");
+      setError(err instanceof Error ? err.message : t("debtsLoadFailed", "Qarzlar yuklanmadi"));
     } finally {
       setLoading(false);
     }
@@ -164,7 +166,7 @@ export default function DebtsPage() {
     if (!paymentDebt) return;
     const amount = parseAmount(paymentAmount);
     if (amount <= 0) {
-      setError("To‘lov summasini kiriting");
+      setError(t("enterPaymentAmount"));
       return;
     }
 
@@ -178,22 +180,22 @@ export default function DebtsPage() {
           amount,
           currency: normalizeCurrency(paymentDebt.currency),
           method: paymentMethod,
-          comment: paymentComment || "Qarz bo‘yicha to‘lov",
+          comment: paymentComment || t("paymentDebtComment", "Qarz bo‘yicha to‘lov"),
         }),
       });
-      setNotice("To‘lov saqlandi");
+      setNotice(t("paymentSaved"));
       setPaymentDebt(null);
       setPaymentAmount("");
       setPaymentMethod("CASH");
       setPaymentComment("");
       await load();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "To‘lov saqlanmadi");
+      setError(err instanceof Error ? err.message : t("paymentFailed"));
     }
   }
 
   return (
-    <AppLayout title="Qarzlar" subtitle="Excel / 1C qarzdorlar. Kollektor uchun sodda ro‘yxat va tez to‘lov kiritish.">
+    <AppLayout title={t("debtsTitle")} subtitle={t("debtsSubtitle")}>
       <input
         ref={inputRef}
         type="file"
@@ -209,18 +211,18 @@ export default function DebtsPage() {
       {notice ? <Alert tone="green" text={notice} onClose={() => setNotice("")} /> : null}
 
       <section className="mb-5 grid grid-cols-4 gap-4 max-xl:grid-cols-2 max-md:grid-cols-1">
-        <Stat label="Ochiq qarzdor" value={`${num(totals.count)} ta`} />
-        <Stat label="Kechikkan" value={`${num(totals.overdue)} ta`} />
-        <Stat label="UZS qoldiq" value={money(totals.uzs, "UZS")} />
-        <Stat label="USD qoldiq" value={money(totals.usd, "USD")} />
+        <Stat label={t("openDebtors")} value={`${num(totals.count)} ta`} />
+        <Stat label={t("overdueDebtors")} value={`${num(totals.overdue)} ta`} />
+        <Stat label={t("uzsRemaining")} value={money(totals.uzs, "UZS")} />
+        <Stat label={t("usdRemaining")} value={money(totals.usd, "USD")} />
       </section>
 
-      <section className="mb-5 rounded-[26px] border border-[var(--border)] bg-[var(--card)] p-5 shadow-[0_18px_60px_rgba(15,23,42,0.05)]">
+      <section className="mb-5 rounded-[26px] border border-[var(--border)] bg-[var(--card)] p-5 shadow-[var(--shadow-card)]">
         <div className="flex items-center justify-between gap-4 max-lg:flex-col max-lg:items-stretch">
           <div>
-            <h2 className="text-[22px] font-normal tracking-[-0.05em] text-[var(--text)]">Excel qarz markazi</h2>
+            <h2 className="text-[22px] font-normal tracking-[-0.05em] text-[var(--text)]">{t("excelDebtCenter")}</h2>
             <p className="mt-1 text-[13px] leading-5 text-[var(--muted)]">
-              Import bosilganda eski qarzlar tozalanadi. Excel yagona manba bo‘ladi.
+              {t("excelDebtNote")}
             </p>
             {importResult ? (
               <p className="mt-2 text-[12px] text-[var(--muted)]">
@@ -233,29 +235,29 @@ export default function DebtsPage() {
             <button
               onClick={() => inputRef.current?.click()}
               disabled={importing}
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-[16px] bg-[#315efb] px-5 text-[13px] font-medium text-white shadow-[0_14px_30px_rgba(49,94,251,0.22)] disabled:opacity-60"
+              className="qanot-button qanot-button-primary h-11 min-h-11 px-5 text-[13px] disabled:opacity-60"
             >
-              <Upload size={17} /> {importing ? "Import..." : "Excel import"}
+              <Upload size={17} /> {importing ? t("importing") : t("excelImport")}
             </button>
             <a
               href={`${process.env.NEXT_PUBLIC_API_URL || ""}/debts/export-excel`}
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-[16px] border border-[var(--border)] bg-[var(--soft)] px-5 text-[13px] text-[var(--text)]"
+              className="qanot-button qanot-button-soft h-11 min-h-11 px-5 text-[13px]"
             >
-              <Download size={17} /> Excel export
+              <Download size={17} /> {t("excelExport")}
             </a>
           </div>
         </div>
       </section>
 
       <section className="grid grid-cols-[1fr_360px] gap-5 max-2xl:grid-cols-1">
-        <div className="rounded-[26px] border border-[var(--border)] bg-[var(--card)] p-5 shadow-[0_18px_60px_rgba(15,23,42,0.05)]">
+        <div className="rounded-[26px] border border-[var(--border)] bg-[var(--card)] p-5 shadow-[var(--shadow-card)]">
           <div className="mb-4 flex items-center justify-between gap-4 max-xl:flex-col max-xl:items-stretch">
             <div>
-              <h2 className="text-[22px] font-normal tracking-[-0.05em] text-[var(--text)]">Qarzdorlar</h2>
-              <p className="mt-1 text-[13px] text-[var(--muted)]">Avval faqat ism ko‘rinadi. Bosilganda detallar ochiladi.</p>
+              <h2 className="text-[22px] font-normal tracking-[-0.05em] text-[var(--text)]">{t("debtorsList")}</h2>
+              <p className="mt-1 text-[13px] text-[var(--muted)]">{t("debtorsListNote")}</p>
             </div>
-            <button className="inline-flex h-11 items-center justify-center gap-2 rounded-[16px] bg-[#315efb] px-5 text-[13px] font-medium text-white">
-              <Plus size={17} /> Qarz qo‘shish
+            <button className="qanot-button qanot-button-primary h-11 min-h-11 px-5 text-[13px]">
+              <Plus size={17} /> {t("addDebt")}
             </button>
           </div>
 
@@ -281,19 +283,19 @@ export default function DebtsPage() {
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Mijoz, telefon, mahsulot yoki izoh..."
+                placeholder={t("searchDebtor")}
                 className="h-full flex-1 bg-transparent text-[14px] text-[var(--text)] outline-none placeholder:text-[var(--muted)]"
               />
             </label>
-            <select
+            <CustomSelect
               value={currency}
-              onChange={(event) => setCurrency(event.target.value)}
-              className="h-12 rounded-[16px] border border-[var(--border)] bg-[var(--soft)] px-4 text-[14px] text-[var(--text)] outline-none"
-            >
-              <option value="ALL">Barcha valuta</option>
-              <option value="USD">USD</option>
-              <option value="UZS">UZS</option>
-            </select>
+              onChange={setCurrency}
+              options={[
+                { value: "ALL", label: t("allCurrency") },
+                { value: "USD", label: t("usd") },
+                { value: "UZS", label: t("uzs") },
+              ]}
+            />
           </div>
 
           <div className="space-y-2">
@@ -307,14 +309,14 @@ export default function DebtsPage() {
                   >
                     <div className="min-w-0">
                       <p className="truncate text-[15px] font-medium text-[var(--text)]">{debt.clientName}</p>
-                      <p className="mt-1 text-[12px] text-[var(--muted)]">{debt.phone || "telefon yo‘q"}</p>
+                      <p className="mt-1 text-[12px] text-[var(--muted)]">{debt.phone || t("noPhone")}</p>
                     </div>
                     <div className="text-right max-lg:hidden">
-                      <p className="text-[10px] uppercase tracking-[0.14em] text-[var(--muted)]">Muddat</p>
+                      <p className="text-[10px] uppercase tracking-[0.14em] text-[var(--muted)]">{t("dueDate")}</p>
                       <p className="mt-1 text-[13px] text-[var(--text)]">{formatDate(debt.dueDate)}</p>
                     </div>
                     <div className="text-right">
-                      <p className="text-[10px] uppercase tracking-[0.14em] text-[var(--muted)]">Qoldiq</p>
+                      <p className="text-[10px] uppercase tracking-[0.14em] text-[var(--muted)]">{t("remaining")}</p>
                       <p className="mt-1 text-[15px] font-medium text-[var(--text)]">{money(debt.remaining, debt.currency)}</p>
                     </div>
                     <ChevronDown className={`text-[var(--muted)] transition ${isOpen ? "rotate-180" : ""}`} size={18} />
@@ -323,15 +325,15 @@ export default function DebtsPage() {
                   {isOpen ? (
                     <div className="border-t border-[var(--border)] bg-[var(--card)] p-4">
                       <div className="grid grid-cols-4 gap-3 max-xl:grid-cols-2 max-md:grid-cols-1">
-                        <Info label="Jami qarz" value={money(debt.amount, debt.currency)} />
-                        <Info label="To‘langan" value={money(debt.paid, debt.currency)} />
-                        <Info label="Oxirgi to‘lov" value={debt.lastPaymentText} />
-                        <Info label="Holat" value={debt.statusText} />
+                        <Info label={t("totalDebt")} value={money(debt.amount, debt.currency)} />
+                        <Info label={t("paidAmount")} value={money(debt.paid, debt.currency)} />
+                        <Info label={t("lastPayment")} value={debt.lastPaymentText} />
+                        <Info label={t("status")} value={debt.statusText} />
                       </div>
 
                       <div className="mt-4 grid grid-cols-2 gap-3 max-lg:grid-cols-1">
-                        <Info label="Nima olgan" value={debt.productNote || "Excel izohida mahsulot yo‘q"} wide />
-                        <Info label="Izoh" value={debt.cleanComment || "Izoh yo‘q"} wide />
+                        <Info label={t("productBought")} value={debt.productNote || t("noProductInfo")} wide />
+                        <Info label={t("note")} value={debt.cleanComment || t("noComment")} wide />
                       </div>
 
                       <div className="mt-4 flex flex-wrap gap-2">
@@ -341,9 +343,9 @@ export default function DebtsPage() {
                             setPaymentAmount(String(debt.remaining || ""));
                             setPaymentComment("");
                           }}
-                          className="inline-flex h-10 items-center justify-center gap-2 rounded-[14px] bg-[#315efb] px-4 text-[13px] text-white"
+                          className="qanot-button qanot-button-primary h-10 min-h-10 px-4 text-[13px]"
                         >
-                          <CheckCircle2 size={16} /> To‘lov kiritish
+                          <CheckCircle2 size={16} /> {t("addPayment")}
                         </button>
                       </div>
 
@@ -353,7 +355,7 @@ export default function DebtsPage() {
                             <div key={payment.id} className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3 last:border-b-0">
                               <div>
                                 <p className="text-[13px] text-[var(--text)]">{money(Number(payment.amount || 0), payment.currency || debt.currency)}</p>
-                                <p className="text-[12px] text-[var(--muted)]">{payment.method || "method"} · {payment.comment || "izoh yo‘q"}</p>
+                                <p className="text-[12px] text-[var(--muted)]">{payment.method || "method"} · {payment.comment || t("noComment")}</p>
                               </div>
                               <p className="text-[12px] text-[var(--muted)]">{formatDate(payment.createdAt)}</p>
                             </div>
@@ -368,15 +370,15 @@ export default function DebtsPage() {
 
             {!filtered.length ? (
               <div className="rounded-[20px] border border-[var(--border)] bg-[var(--soft)] p-10 text-center text-[var(--muted)]">
-                Qarzdor topilmadi.
+                {t("noDebtorFound")}
               </div>
             ) : null}
           </div>
         </div>
 
         <aside className="space-y-5">
-          <div className="rounded-[26px] border border-[var(--border)] bg-[var(--card)] p-5 shadow-[0_18px_60px_rgba(15,23,42,0.05)]">
-            <h3 className="text-[20px] font-normal tracking-[-0.05em] text-[var(--text)]">Oxirgi to‘lovlar</h3>
+          <div className="rounded-[26px] border border-[var(--border)] bg-[var(--card)] p-5 shadow-[var(--shadow-card)]">
+            <h3 className="text-[20px] font-normal tracking-[-0.05em] text-[var(--text)]">{t("latestPayments")}</h3>
             <div className="mt-4 space-y-2">
               {enriched
                 .flatMap((debt) => (debt.payments || []).map((p) => ({ ...p, clientName: debt.clientName, debtCurrency: debt.currency })))
@@ -391,16 +393,16 @@ export default function DebtsPage() {
                     <p className="mt-1 text-[12px] text-[var(--muted)]">{formatDate(payment.createdAt)}</p>
                   </div>
                 ))}
-              {!enriched.some((d) => d.payments?.length) ? <p className="text-[13px] text-[var(--muted)]">To‘lovlar hali yo‘q.</p> : null}
+              {!enriched.some((d) => d.payments?.length) ? <p className="text-[13px] text-[var(--muted)]">{t("noPaymentsYet")}</p> : null}
             </div>
           </div>
 
-          <div className="rounded-[26px] border border-[var(--border)] bg-[var(--card)] p-5 shadow-[0_18px_60px_rgba(15,23,42,0.05)]">
-            <h3 className="text-[20px] font-normal tracking-[-0.05em] text-[var(--text)]">Kollektor eslatmasi</h3>
+          <div className="rounded-[26px] border border-[var(--border)] bg-[var(--card)] p-5 shadow-[var(--shadow-card)]">
+            <h3 className="text-[20px] font-normal tracking-[-0.05em] text-[var(--text)]">{t("collectorNote")}</h3>
             <div className="mt-4 space-y-3 text-[13px] leading-5 text-[var(--muted)]">
-              <p>1. Avval kechikkan qarzdorlar bilan bog‘laniladi.</p>
-              <p>2. To‘lov kiritilganda qarz avtomatik kamayadi.</p>
-              <p>3. “Nima olgan” Excel izohidan yoki qarz kommentidan olinadi.</p>
+              <p>1. {t("collectorNote1")}</p>
+              <p>2. {t("collectorNote2")}</p>
+              <p>3. {t("collectorNote3")}</p>
             </div>
           </div>
         </aside>
@@ -411,7 +413,7 @@ export default function DebtsPage() {
           <div className="w-full max-w-[520px] rounded-[28px] border border-[var(--border)] bg-[var(--card)] p-6 shadow-[0_30px_90px_rgba(0,0,0,0.22)]">
             <div className="mb-5 flex items-start justify-between gap-4">
               <div>
-                <h3 className="text-[24px] font-normal tracking-[-0.05em] text-[var(--text)]">To‘lov kiritish</h3>
+                <h3 className="text-[24px] font-normal tracking-[-0.05em] text-[var(--text)]">{t("addPayment")}</h3>
                 <p className="mt-1 text-[13px] text-[var(--muted)]">{enrichDebt(paymentDebt).clientName}</p>
               </div>
               <button onClick={() => setPaymentDebt(null)} className="rounded-full bg-[var(--soft)] p-2 text-[var(--muted)]">
@@ -420,7 +422,7 @@ export default function DebtsPage() {
             </div>
 
             <div className="space-y-4">
-              <Field label={`Summa (${normalizeCurrency(paymentDebt.currency)})`}>
+              <Field label={`${t("paymentAmount")} (${normalizeCurrency(paymentDebt.currency)})`}>
                 <input
                   value={paymentAmount}
                   onChange={(event) => setPaymentAmount(event.target.value)}
@@ -429,34 +431,34 @@ export default function DebtsPage() {
                 />
               </Field>
 
-              <Field label="To‘lov turi">
-                <select
+              <Field label={t("paymentMethod")} >
+                <CustomSelect
                   value={paymentMethod}
-                  onChange={(event) => setPaymentMethod(event.target.value)}
-                  className="h-12 w-full rounded-[16px] border border-[var(--border)] bg-[var(--soft)] px-4 text-[15px] text-[var(--text)] outline-none"
-                >
-                  <option value="CASH">Naqd</option>
-                  <option value="CARD">Karta</option>
-                  <option value="TRANSFER">Bank / Perechisleniya</option>
-                </select>
+                  onChange={setPaymentMethod}
+                  options={[
+                    { value: "CASH", label: t("cash") },
+                    { value: "CARD", label: t("card") },
+                    { value: "TRANSFER", label: t("transfer") },
+                  ]}
+                />
               </Field>
 
-              <Field label="Izoh">
+              <Field label={t("note")}>
                 <input
                   value={paymentComment}
                   onChange={(event) => setPaymentComment(event.target.value)}
                   className="h-12 w-full rounded-[16px] border border-[var(--border)] bg-[var(--soft)] px-4 text-[15px] text-[var(--text)] outline-none"
-                  placeholder="Masalan: kollektor orqali"
+                  placeholder={t("notePlaceholder", "Masalan: kollektor orqali")}
                 />
               </Field>
             </div>
 
             <div className="mt-6 flex justify-end gap-3">
-              <button onClick={() => setPaymentDebt(null)} className="h-11 rounded-[15px] bg-[var(--soft)] px-5 text-[13px] text-[var(--text)]">
-                Bekor qilish
+              <button onClick={() => setPaymentDebt(null)} className="qanot-button qanot-button-soft h-11 min-h-11 px-5 text-[13px]">
+                {t("cancel")}
               </button>
-              <button onClick={createPayment} className="h-11 rounded-[15px] bg-[#315efb] px-5 text-[13px] font-medium text-white">
-                Saqlash
+              <button onClick={createPayment} className="qanot-button qanot-button-primary h-11 min-h-11 px-5 text-[13px]">
+                {t("save")}
               </button>
             </div>
           </div>

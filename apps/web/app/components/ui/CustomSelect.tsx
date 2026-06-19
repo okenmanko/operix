@@ -35,7 +35,7 @@ export default function CustomSelect({
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}
-        className={`flex h-[48px] w-full items-center justify-between rounded-[17px] border border-[var(--border)] bg-[var(--surface)] px-4 text-left text-[14px] font-normal text-[var(--text)] shadow-[var(--shadow-soft)] outline-none transition ${
+        className={`flex h-12 w-full items-center justify-between rounded-[16px] border bg-[var(--surface)] px-4 text-left text-[14px] font-medium text-[var(--text)] shadow-[var(--shadow-soft)] outline-none transition ${
           open ? "border-[var(--blue)] ring-4 ring-[var(--focus)]" : "border-[var(--border)] hover:border-[var(--border-strong)]"
         }`}
       >
@@ -51,7 +51,7 @@ export default function CustomSelect({
       </button>
 
       {open ? (
-        <div className="absolute left-0 right-0 top-[56px] z-[100] max-h-[300px] overflow-auto rounded-[20px] border border-[var(--border)] bg-[var(--surface)] p-2 shadow-[0_28px_80px_rgba(15,23,42,0.16)]">
+        <div className="absolute left-0 right-0 top-[56px] z-[100] max-h-[300px] overflow-auto rounded-[18px] border border-[var(--border)] bg-[var(--surface)] p-2 shadow-[0_28px_80px_rgba(15,23,42,0.16)]">
           {options.map((item) => {
             const active = item.value === value;
             return (
@@ -62,7 +62,7 @@ export default function CustomSelect({
                   onChange(item.value);
                   setOpen(false);
                 }}
-                className={`flex h-[46px] w-full items-center justify-between rounded-[15px] px-3 text-[13px] font-normal transition ${
+                className={`flex h-[44px] w-full items-center justify-between rounded-[14px] px-3 text-[13px] font-medium transition ${
                   active ? "bg-[var(--blue-soft)] text-[var(--blue)]" : "text-[var(--text)] hover:bg-[var(--hover)]"
                 }`}
               >
