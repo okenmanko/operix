@@ -1,7 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import AppLayout from "./components/AppLayout";
 import { apiJson, money, num } from "./lib/api";
 
@@ -22,6 +22,15 @@ type Dashboard = {
   closedDebts?: number;
   overdueDebts?: number;
   topDebtors?: { id?: string; fullName?: string; clientName?: string; phone?: string; total?: number; remaining?: number; currency?: string }[];
+};
+
+type InventorySummary = {
+  products?: number;
+  warehouses?: number;
+  totalQuantity?: number;
+  totalValueUSD?: number;
+  totalValueUZS?: number;
+  totalValue?: number;
 };
 
 const empty: Dashboard = {
@@ -45,13 +54,18 @@ const empty: Dashboard = {
 
 export default function DashboardPage() {
   const [data, setData] = useState<Dashboard>(empty);
+  const [inventory, setInventory] = useState<InventorySummary>({});
   const [error, setError] = useState("");
 
   async function load() {
     try {
       setError("");
-      const result = await apiJson<Dashboard>("/dashboard");
-      setData({ ...empty, ...(result || {}) });
+      const [dashboard, inventorySummary] = await Promise.all([
+        apiJson<Dashboard>("/dashboard"),
+        apiJson<InventorySummary>("/inventory/summary").catch(() => ({})),
+      ]);
+      setData({ ...empty, ...(dashboard || {}) });
+      setInventory(inventorySummary || {});
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Dashboard yuklanmadi");
     }
@@ -62,106 +76,105 @@ export default function DashboardPage() {
   }, []);
 
   const health = useMemo(() => {
-    const overdue = Number(data.overdueDebts || 0);
-    const active = Number(data.activeDebts || 0) || 1;
-    const riskPenalty = Math.min(35, Math.round((overdue / active) * 100));
-    const debtPenalty = Number(data.remainingUSD || 0) > 0 || Number(data.remainingUZS || 0) > 0 ? 8 : 0;
-    return Math.max(55, 96 - riskPenalty - debtPenalty);
-  }, [data]);
+    let score = 100;
+    if ((data.overdueDebts || 0) > 0) score -= Math.min(18, (data.overdueDebts || 0) * 2);
+    if ((data.remainingUSD || 0) > 0) score -= 5;
+    if ((inventory.totalQuantity || 0) <= 0) score -= 8;
+    return Math.max(55, Math.min(100, score));
+  }, [data, inventory]);
 
-  const topDebtors = (data.topDebtors || []).slice(0, 6);
+  const risks = [
+    data.overdueDebts ? `${data.overdueDebts} ta muddati o‘tgan qarz bor` : "Muddati o‘tgan qarz yo‘q",
+    data.remainingUSD ? `${money(data.remainingUSD, "USD")} dollar qarz nazoratda` : "Dollar qarz xavfi yo‘q",
+    inventory.totalQuantity ? `${num(inventory.totalQuantity)} dona tovar skladda` : "Sklad qoldig‘i sync kerak",
+  ];
 
   return (
-    <AppLayout title="Dashboard" subtitle="Qanot biznes egasiga asosiy holatni bitta ekranda ko‘rsatadi.">
+    <AppLayout title="Qanot" subtitle="Biznes holati: pul, qarz, sklad va xavflar bitta joyda.">
       {error ? <ErrorBox text={error} /> : null}
 
-      <div className="grid grid-cols-[1.25fr_0.75fr] gap-5 max-xl:grid-cols-1">
+      <div className="mb-5 grid grid-cols-[1.25fr_.75fr] gap-4 max-xl:grid-cols-1">
         <section className="premium-card p-5">
-          <div className="flex items-start justify-between gap-4 max-md:block">
+          <div className="mb-5 flex items-start justify-between gap-4 max-md:flex-col">
             <div>
-              <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--muted-2)]">Owner OS</p>
-              <h2 className="mt-2 text-[30px] font-medium tracking-[-0.06em] text-[var(--text)]">
-                Bugungi boshqaruv markazi
-              </h2>
-              <p className="mt-2 max-w-xl text-[14px] leading-6 text-[var(--muted)]">
-                Pul, qarz, to‘lov va risklar alohida sahifalarga tarqalib ketmaydi.
-              </p>
+              <p className="text-[12px] uppercase tracking-[0.14em] text-[var(--muted-2)]">Owner view</p>
+              <h2 className="mt-2 text-[30px] font-medium tracking-[-0.07em] text-[var(--text)]">Bugungi boshqaruv paneli</h2>
             </div>
-            <div className="rounded-[20px] border border-[var(--line)] bg-[var(--soft)] px-5 py-4 text-right max-md:mt-4 max-md:text-left">
-              <p className="text-[12px] text-[var(--muted)]">Business Health</p>
-              <p className="mt-1 text-[34px] font-semibold tracking-[-0.06em] text-[var(--text)]">{health}%</p>
-            </div>
+            <Link href="/reports" className="qanot-pill">Hisobotni ochish</Link>
           </div>
 
-          <div className="mt-5 grid grid-cols-4 gap-3 max-lg:grid-cols-2 max-sm:grid-cols-1">
-            <Stat label="Mijozlar" value={num(data.clientsCount || 0)} />
-            <Stat label="Qarzdorlar" value={num(data.debtsCount || 0)} />
-            <Stat label="To‘lovlar" value={num(data.paymentsCount || 0)} />
-            <Stat label="Bugungi to‘lov" value={money(data.todayPaymentsUZS ?? data.todayPayments, "UZS")} />
+          <div className="grid grid-cols-4 gap-3 max-lg:grid-cols-2 max-sm:grid-cols-1">
+            <Kpi label="Bugungi tushum" value={money(data.todayPaymentsUZS ?? data.todayPayments, "UZS")} helper={money(data.todayPaymentsUSD || 0, "USD")} />
+            <Kpi label="Qarzdorlar" value={num(data.debtsCount || 0)} helper={`${num(data.overdueDebts || 0)} overdue`} />
+            <Kpi label="Sklad" value={money(inventory.totalValueUSD || inventory.totalValue || 0, "USD")} helper={`${num(inventory.products || 0)} product`} />
+            <Kpi label="Business health" value={`${health}%`} helper={health >= 85 ? "yaxshi" : "e'tibor kerak"} />
           </div>
         </section>
 
         <section className="premium-card p-5">
-          <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--muted-2)]">Risk Center</p>
-          <h2 className="mt-2 text-[24px] font-medium tracking-[-0.05em]">Nimani tekshirish kerak?</h2>
-          <div className="mt-4 space-y-2">
-            <Risk label="Aktiv qarzlar" value={`${num(data.activeDebts || 0)} ta`} />
-            <Risk label="Muddati o‘tgan" value={`${num(data.overdueDebts || 0)} ta`} danger={Boolean(data.overdueDebts)} />
-            <Risk label="Yopilgan qarzlar" value={`${num(data.closedDebts || 0)} ta`} />
+          <p className="text-[12px] uppercase tracking-[0.14em] text-[var(--muted-2)]">AI Director</p>
+          <h2 className="mt-2 text-[24px] font-medium tracking-[-0.06em]">Bugungi maslahat</h2>
+          <p className="mt-4 text-[14px] leading-6 text-[var(--muted)]">
+            Qarz va skladni har kuni ertalab tekshir. Overdue qarzlar ko‘paysa, savdo o‘sishi real pulga aylanmaydi.
+          </p>
+          <div className="mt-5 space-y-2">
+            {risks.map((risk) => (
+              <div key={risk} className="rounded-[16px] bg-[var(--soft-card)] px-4 py-3 text-[13px] text-[var(--text)]">
+                {risk}
+              </div>
+            ))}
           </div>
         </section>
       </div>
 
-      <div className="mt-5 grid grid-cols-3 gap-5 max-xl:grid-cols-1">
-        <Panel title="UZS qarz balansi" href="/debts">
-          <Metric label="Jami qarz" value={money(data.totalDebtsUZS, "UZS")} />
-          <Metric label="To‘langan" value={money(data.totalPaidUZS, "UZS")} />
-          <Metric label="Qoldiq" value={money(data.remainingUZS, "UZS")} strong />
+      <div className="grid grid-cols-3 gap-4 max-xl:grid-cols-1">
+        <Panel title="Pul">
+          <Metric label="UZS tushum" value={money(data.todayPaymentsUZS ?? data.todayPayments, "UZS")} />
+          <Metric label="USD tushum" value={money(data.todayPaymentsUSD || 0, "USD")} />
+          <Metric label="To‘lovlar soni" value={num(data.paymentsCount || 0)} />
         </Panel>
 
-        <Panel title="USD qarz balansi" href="/debts">
-          <Metric label="Jami qarz" value={money(data.totalDebtsUSD, "USD")} />
-          <Metric label="To‘langan" value={money(data.totalPaidUSD, "USD")} />
-          <Metric label="Qoldiq" value={money(data.remainingUSD, "USD")} strong />
+        <Panel title="Qarzlar">
+          <Metric label="UZS qoldiq" value={money(data.remainingUZS || 0, "UZS")} />
+          <Metric label="USD qoldiq" value={money(data.remainingUSD || 0, "USD")} />
+          <Metric label="Aktiv qarz" value={num(data.activeDebts || 0)} />
         </Panel>
 
-        <Panel title="Tezkor kirish">
-          <Quick href="/finance" title="Moliya" text="Kassa, bank, kirim-chiqim" />
-          <Quick href="/sklad" title="Sklad" text="Tovar, ombor, qoldiq" />
-          <Quick href="/reports" title="Hisobot" text="Grafik, profit, tahlil" />
+        <Panel title="Sklad">
+          <Metric label="Mahsulot turi" value={num(inventory.products || 0)} />
+          <Metric label="Omborlar" value={num(inventory.warehouses || 0)} />
+          <Metric label="Qoldiq dona" value={num(inventory.totalQuantity || 0)} />
         </Panel>
       </div>
 
-      <div className="premium-card mt-5 p-5">
-        <div className="mb-4 flex items-center justify-between gap-4">
+      <div className="premium-card mt-4 p-5">
+        <div className="mb-4 flex items-center justify-between gap-3 max-md:flex-col max-md:items-start">
           <div>
-            <h2 className="text-[23px] font-medium tracking-[-0.05em]">Top qarzdorlar</h2>
-            <p className="mt-1 text-[13px] text-[var(--muted)]">Eng katta qoldiqlar birinchi ko‘rinadi.</p>
+            <h2 className="text-[24px] font-medium tracking-[-0.06em]">Top qarzdorlar</h2>
+            <p className="mt-1 text-[13px] text-[var(--muted)]">Eng katta qoldiq bo‘yicha tez nazorat.</p>
           </div>
-          <Link href="/debts" className="rounded-[14px] bg-[var(--soft)] px-4 py-2 text-[12px] text-[var(--muted)] hover:text-[var(--text)]">
-            Hammasi
-          </Link>
+          <Link href="/debts" className="qanot-pill">Barchasi</Link>
         </div>
-        <div className="overflow-hidden rounded-[18px] border border-[var(--line)]">
-          <table className="w-full text-left text-[13px]">
-            <thead className="bg-[var(--soft)] text-[10px] uppercase tracking-[0.14em] text-[var(--muted-2)]">
+        <div className="qanot-table-wrap overflow-hidden rounded-[18px] border border-[var(--line)]">
+          <table className="qanot-table">
+            <thead>
               <tr>
-                <th className="px-4 py-3 font-normal">Mijoz</th>
-                <th className="px-4 py-3 font-normal">Telefon</th>
-                <th className="px-4 py-3 text-right font-normal">Qarz</th>
+                <th className="text-left">Klient</th>
+                <th className="text-left">Telefon</th>
+                <th className="text-right">Qarz</th>
               </tr>
             </thead>
             <tbody>
-              {topDebtors.map((item, index) => (
-                <tr key={item.id || index} className="border-t border-[var(--line-soft)]">
-                  <td className="px-4 py-3 text-[var(--text)]">{item.fullName || item.clientName || "—"}</td>
-                  <td className="px-4 py-3 text-[var(--muted)]">{item.phone || "—"}</td>
-                  <td className="px-4 py-3 text-right text-[var(--text)]">{money(item.total ?? item.remaining, item.currency || "UZS")}</td>
+              {(data.topDebtors || []).slice(0, 8).map((item, index) => (
+                <tr key={item.id || index}>
+                  <td>{item.fullName || item.clientName || "—"}</td>
+                  <td className="text-[var(--muted)]">{item.phone || "—"}</td>
+                  <td className="text-right">{money(item.total ?? item.remaining, item.currency || "UZS")}</td>
                 </tr>
               ))}
-              {!topDebtors.length ? (
+              {!(data.topDebtors || []).length ? (
                 <tr>
-                  <td colSpan={3} className="p-8 text-center text-[var(--muted-2)]">Top qarzdor yo‘q</td>
+                  <td colSpan={3} className="text-center text-[var(--muted)]">Qarzdorlar topilmadi.</td>
                 </tr>
               ) : null}
             </tbody>
@@ -173,53 +186,33 @@ export default function DashboardPage() {
 }
 
 function ErrorBox({ text }: { text: string }) {
-  return <div className="mb-5 rounded-[18px] border border-[var(--danger-line)] bg-[var(--danger-bg)] px-5 py-4 text-[13px] text-[var(--danger-text)]">{text}</div>;
+  return <div className="mb-5 rounded-[18px] border border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-600">{text}</div>;
 }
 
-function Stat({ label, value }: { label: string; value: React.ReactNode }) {
+function Kpi({ label, value, helper }: { label: string; value: string | number; helper?: string }) {
   return (
-    <div className="rounded-[18px] border border-[var(--line)] bg-[var(--soft)] px-4 py-4">
-      <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--muted-2)]">{label}</p>
-      <p className="mt-2 text-[22px] font-medium tracking-[-0.05em] text-[var(--text)]">{value}</p>
+    <div className="qanot-kpi rounded-[20px] border border-[var(--line)] bg-[var(--soft-card)] p-4">
+      <p className="text-[12px] text-[var(--muted)]">{label}</p>
+      <p className="mt-3 text-[24px] font-medium tracking-[-0.06em] text-[var(--text)]">{value}</p>
+      {helper ? <p className="mt-2 text-[12px] text-[var(--muted-2)]">{helper}</p> : null}
     </div>
   );
 }
 
-function Panel({ title, href, children }: { title: string; href?: string; children: React.ReactNode }) {
+function Panel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="premium-card p-5">
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <h2 className="text-[21px] font-medium tracking-[-0.05em]">{title}</h2>
-        {href ? <Link href={href} className="text-[12px] text-[var(--blue)]">Ochish</Link> : null}
-      </div>
-      <div className="space-y-2">{children}</div>
+      <h2 className="text-[22px] font-medium tracking-[-0.06em]">{title}</h2>
+      <div className="mt-4 space-y-2">{children}</div>
     </div>
   );
 }
 
-function Metric({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+function Metric({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="flex items-center justify-between rounded-[15px] bg-[var(--soft)] px-4 py-3">
+    <div className="flex items-center justify-between rounded-[15px] bg-[var(--soft-card)] px-4 py-3">
       <span className="text-[13px] text-[var(--muted)]">{label}</span>
-      <span className={`text-[14px] ${strong ? "font-semibold text-[var(--text)]" : "text-[var(--text)]"}`}>{value}</span>
+      <span className="text-[13px] font-medium text-[var(--text)]">{value}</span>
     </div>
-  );
-}
-
-function Risk({ label, value, danger }: { label: string; value: string; danger?: boolean }) {
-  return (
-    <div className="flex items-center justify-between rounded-[15px] bg-[var(--soft)] px-4 py-3">
-      <span className="text-[13px] text-[var(--muted)]">{label}</span>
-      <span className={danger ? "text-[13px] font-semibold text-[var(--danger-text)]" : "text-[13px] text-[var(--text)]"}>{value}</span>
-    </div>
-  );
-}
-
-function Quick({ href, title, text }: { href: string; title: string; text: string }) {
-  return (
-    <Link href={href} className="block rounded-[15px] bg-[var(--soft)] px-4 py-3 transition hover:bg-[var(--hover)]">
-      <p className="text-[14px] font-medium text-[var(--text)]">{title}</p>
-      <p className="mt-0.5 text-[12px] text-[var(--muted)]">{text}</p>
-    </Link>
   );
 }

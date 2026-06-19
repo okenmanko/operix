@@ -4,71 +4,55 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   BarChart3,
+  Boxes,
+  CreditCard,
   Home,
-  Package,
   Settings,
   ShoppingCart,
   Users,
-  Wallet,
 } from "lucide-react";
-import { useI18n } from "../lib/i18n";
 
-const mainLinks = [
-  { href: "/", labelKey: "dashboard", fallback: "Dashboard", icon: Home },
-  { href: "/finance", labelKey: "finance", fallback: "Moliya", icon: Wallet },
-  { href: "/debts", labelKey: "debtors", fallback: "Qarzdorlar", icon: Users },
-  { href: "/sklad", labelKey: "warehouse", fallback: "Sklad", icon: Package },
-  { href: "/sales", labelKey: "sales", fallback: "Sotuv", icon: ShoppingCart },
-  { href: "/reports", labelKey: "reports", fallback: "Hisobot", icon: BarChart3 },
-  { href: "/settings", labelKey: "settings", fallback: "Sozlamalar", icon: Settings },
+const links = [
+  { href: "/", label: "Dashboard", icon: Home },
+  { href: "/finance", label: "Moliya", icon: CreditCard },
+  { href: "/debts", label: "Qarzdorlar", icon: Users },
+  { href: "/sklad", label: "Sklad", icon: Boxes },
+  { href: "/sales", label: "Sotuv", icon: ShoppingCart },
+  { href: "/reports", label: "Hisobot", icon: BarChart3 },
+  { href: "/settings", label: "Sozlamalar", icon: Settings },
 ];
-
-const hiddenRoutes: Record<string, string[]> = {
-  "/finance": ["/payments", "/cashflow", "/dds"],
-  "/debts": ["/clients", "/overdue"],
-  "/sklad": ["/inventory", "/products", "/warehouses", "/stock-movements", "/qr-labels", "/qr-scanner"],
-  "/sales": ["/pos", "/sales"],
-  "/reports": ["/analytics", "/bi"],
-};
-
-function isActive(pathname: string, href: string) {
-  if (href === "/") return pathname === "/";
-  if (pathname === href || pathname.startsWith(`${href}/`)) return true;
-  return (hiddenRoutes[href] || []).some((route) => pathname === route || pathname.startsWith(`${route}/`));
-}
 
 export default function Sidebar() {
   const pathname = usePathname();
-  const { t } = useI18n();
 
   return (
-    <aside className="fixed left-0 top-0 z-30 h-screen w-[218px] border-r border-[var(--line)] bg-[var(--sidebar)] px-4 py-5 text-[var(--text)] max-lg:hidden">
-      <Link href="/" className="mb-7 flex items-center gap-2.5 px-2">
-        <span className="flex h-8 w-8 items-center justify-center rounded-[12px] bg-[var(--blue)] text-[15px] text-white shadow-[0_12px_28px_rgba(49,94,251,0.24)]">
-          q
-        </span>
-        <span className="text-[23px] font-medium lowercase tracking-[-0.08em] text-[var(--text)]">
+    <aside className="fixed left-0 top-0 z-20 h-screen w-[224px] border-r border-[var(--line)] bg-[var(--card)]/96 px-4 py-5 shadow-[8px_0_32px_rgba(15,23,42,0.025)] backdrop-blur-xl max-lg:static max-lg:h-auto max-lg:w-full max-lg:border-b max-lg:border-r-0">
+      <div className="mb-7 flex items-center gap-3 px-2">
+        <div className="flex h-9 w-9 items-center justify-center rounded-[14px] bg-[var(--blue-soft)] text-[17px] text-[var(--blue)]">
+          ᵠ
+        </div>
+        <h1 className="text-[22px] font-medium lowercase tracking-[-0.075em] text-[var(--text)]">
           qanot
-        </span>
-      </Link>
+        </h1>
+      </div>
 
-      <nav className="space-y-1">
-        {mainLinks.map((item) => {
+      <nav className="operix-scrollbar flex h-[calc(100vh-94px)] flex-col gap-1 overflow-y-auto pr-1 max-lg:h-auto max-lg:flex-row max-lg:overflow-x-auto max-lg:pb-1">
+        {links.map((item) => {
           const Icon = item.icon;
-          const active = isActive(pathname, item.href);
+          const active = item.href === "/" ? pathname === item.href : pathname.startsWith(item.href);
 
           return (
             <Link
               key={item.href}
               href={item.href}
-              className={`group flex h-10 items-center gap-3 rounded-[14px] px-3 text-[13px] transition ${
+              className={`flex h-10 min-w-fit items-center gap-2.5 rounded-[14px] px-3 text-[13px] font-normal transition ${
                 active
-                  ? "bg-[var(--active)] text-[var(--blue)]"
+                  ? "bg-[var(--blue-soft)] text-[var(--blue)]"
                   : "text-[var(--muted)] hover:bg-[var(--hover)] hover:text-[var(--text)]"
               }`}
             >
-              <Icon size={17} strokeWidth={1.8} className="shrink-0" />
-              <span className="truncate">{t(item.labelKey, item.fallback)}</span>
+              <Icon size={16} strokeWidth={1.8} />
+              <span>{item.label}</span>
             </Link>
           );
         })}

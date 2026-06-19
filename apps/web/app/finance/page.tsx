@@ -1,19 +1,20 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ArrowRight, Banknote, CreditCard, Download, FileSpreadsheet, RefreshCw, Wallet } from "lucide-react";
+import Link from "next/link";
 import AppLayout from "../components/AppLayout";
 import { apiJson, money, num } from "../lib/api";
 
 type Dashboard = {
+  paymentsCount?: number;
+  todayPayments?: number;
   todayPaymentsUZS?: number;
   todayPaymentsUSD?: number;
   totalPaidUZS?: number;
   totalPaidUSD?: number;
-  paymentsCount?: number;
   remainingUZS?: number;
   remainingUSD?: number;
+  recentPayments?: Array<{ id: string; amount: number; currency: string; method?: string; createdAt?: string; debt?: { client?: { fullName?: string } } }>;
 };
 
 export default function FinancePage() {
@@ -23,103 +24,85 @@ export default function FinancePage() {
   async function load() {
     try {
       setError("");
-      setData(await apiJson<Dashboard>("/dashboard"));
+      const result = await apiJson<Dashboard>("/dashboard");
+      setData(result || {});
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Moliya yuklanmadi");
     }
   }
 
-  useEffect(() => {
-    load();
-  }, []);
+  useEffect(() => { load(); }, []);
 
   return (
-    <AppLayout title="Moliya" subtitle="Buxgalter uchun kassa, bank, to‘lov va qarz nazorati bitta ekranda.">
-      {error ? <div className="mb-5 rounded-[20px] border border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-600">{error}</div> : null}
+    <AppLayout title="Moliya" subtitle="Buxgalter uchun kassa, bank, to‘lov va qarz nazorati bitta joyda.">
+      {error ? <div className="mb-5 rounded-[18px] border border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-600">{error}</div> : null}
 
       <div className="mb-5 grid grid-cols-4 gap-4 max-xl:grid-cols-2 max-md:grid-cols-1">
-        <Stat icon={Wallet} label="Bugungi UZS kirim" value={money(data.todayPaymentsUZS || 0, "UZS")} />
-        <Stat icon={Wallet} label="Bugungi USD kirim" value={money(data.todayPaymentsUSD || 0, "USD")} />
-        <Stat icon={CreditCard} label="Jami to‘lovlar" value={`${num(data.paymentsCount || 0)} ta`} />
-        <Stat icon={Banknote} label="USD qoldiq qarz" value={money(data.remainingUSD || 0, "USD")} />
+        <Stat label="Bugungi UZS" value={money(data.todayPaymentsUZS ?? data.todayPayments ?? 0, "UZS")} />
+        <Stat label="Bugungi USD" value={money(data.todayPaymentsUSD || 0, "USD")} />
+        <Stat label="Jami to‘langan UZS" value={money(data.totalPaidUZS || 0, "UZS")} />
+        <Stat label="Jami to‘langan USD" value={money(data.totalPaidUSD || 0, "USD")} />
       </div>
 
-      <div className="grid grid-cols-3 gap-5 max-xl:grid-cols-1">
-        <ActionCard
-          title="To‘lovlar"
-          text="Kirimlar, qisman to‘lovlar, USD/UZS va mijozlar bo‘yicha tarix."
-          href="/payments"
-          icon={CreditCard}
-          items={["Partial payment", "Cash / card / transfer", "Payment history"]}
-        />
-        <ActionCard
-          title="Qarz Excel markazi"
-          text="1C Excel import — qarzlar uchun yagona manba."
-          href="/debts"
-          icon={FileSpreadsheet}
-          items={["Excel import", "Replace mode", "USD / UZS jami"]}
-        />
-        <ActionCard
-          title="Cashflow / DDS"
-          text="Kirim-chiqim, kassa, bank va rejalashtirilgan pul oqimi."
-          href="/cashflow"
-          icon={Banknote}
-          items={["Kirim", "Chiqim", "Pul oqimi"]}
-        />
-      </div>
-
-      <div className="premium-card mt-5 p-6">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <p className="text-[12px] uppercase tracking-[0.16em] text-[var(--muted-2)]">Buxgalter checklist</p>
-            <h2 className="mt-2 text-[24px] font-normal tracking-[-0.05em]">Kunlik yopish tartibi</h2>
+      <div className="grid grid-cols-[.8fr_1.2fr] gap-4 max-xl:grid-cols-1">
+        <section className="premium-card p-5">
+          <h2 className="text-[24px] font-medium tracking-[-0.06em]">Tez amallar</h2>
+          <div className="mt-4 grid gap-2">
+            <Link href="/payments" className="Action">To‘lov kiritish</Link>
+            <Link href="/cashflow" className="Action">Kirim / chiqim</Link>
+            <Link href="/debts" className="Action">Qarzdorlar</Link>
+            <Link href="/reports" className="Action">Hisobot</Link>
           </div>
-          <button onClick={load} className="inline-flex h-11 items-center gap-2 rounded-[16px] border border-[var(--line)] bg-[var(--card-2)] px-4 text-[13px] text-[var(--text)]">
-            <RefreshCw size={16} /> Yangilash
-          </button>
-        </div>
+        </section>
 
-        <div className="mt-5 grid grid-cols-4 gap-3 max-lg:grid-cols-2 max-md:grid-cols-1">
-          {[
-            "1C Excel qarzlarni import qilish",
-            "Bugungi to‘lovlarni tekshirish",
-            "Kassa va bank qoldig‘ini solishtirish",
-            "Hisobotni egaga yuborish",
-          ].map((item) => (
-            <div key={item} className="rounded-[18px] bg-[var(--card-2)] px-4 py-3 text-[13px] leading-5 text-[var(--text)]">
-              {item}
-            </div>
-          ))}
-        </div>
+        <section className="premium-card p-5">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <h2 className="text-[24px] font-medium tracking-[-0.06em]">Oxirgi to‘lovlar</h2>
+            <span className="qanot-pill">{num(data.paymentsCount || 0)} ta</span>
+          </div>
+
+          <div className="qanot-table-wrap overflow-hidden rounded-[18px] border border-[var(--line)]">
+            <table className="qanot-table">
+              <thead>
+                <tr>
+                  <th className="text-left">Klient</th>
+                  <th className="text-left">Usul</th>
+                  <th className="text-right">Summa</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(data.recentPayments || []).slice(0, 10).map((payment) => (
+                  <tr key={payment.id}>
+                    <td>{payment.debt?.client?.fullName || "—"}</td>
+                    <td className="text-[var(--muted)]">{payment.method || "—"}</td>
+                    <td className="text-right">{money(payment.amount, payment.currency || "UZS")}</td>
+                  </tr>
+                ))}
+                {!(data.recentPayments || []).length ? (
+                  <tr><td colSpan={3} className="text-center text-[var(--muted)]">To‘lovlar topilmadi.</td></tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </section>
       </div>
+
+      <style jsx>{`
+        .Action {
+          border: 1px solid var(--line);
+          background: var(--soft-card);
+          border-radius: 16px;
+          padding: 14px 16px;
+          font-size: 14px;
+          color: var(--text);
+          transition: .18s ease;
+        }
+        .Action:hover { background: var(--hover); color: var(--blue); }
+      `}</style>
     </AppLayout>
   );
 }
 
-function Stat({ icon: Icon, label, value }: { icon: any; label: string; value: string }) {
-  return (
-    <div className="premium-card p-5">
-      <Icon size={18} className="text-[var(--blue)]" />
-      <p className="mt-4 text-[12px] text-[var(--muted)]">{label}</p>
-      <p className="mt-2 text-[23px] font-normal tracking-[-0.05em] text-[var(--text)]">{value}</p>
-    </div>
-  );
-}
-
-function ActionCard({ title, text, href, icon: Icon, items }: { title: string; text: string; href: string; icon: any; items: string[] }) {
-  return (
-    <Link href={href} className="premium-card block p-6 transition hover:-translate-y-0.5 hover:border-[var(--blue)]/35">
-      <div className="flex items-start justify-between gap-4">
-        <Icon size={23} className="text-[var(--blue)]" />
-        <ArrowRight size={18} className="text-[var(--muted-2)]" />
-      </div>
-      <h2 className="mt-5 text-[24px] font-normal tracking-[-0.05em]">{title}</h2>
-      <p className="mt-2 text-[14px] leading-6 text-[var(--muted)]">{text}</p>
-      <div className="mt-5 flex flex-wrap gap-2">
-        {items.map((item) => (
-          <span key={item} className="rounded-full bg-[var(--card-2)] px-3 py-1.5 text-[12px] text-[var(--muted)]">{item}</span>
-        ))}
-      </div>
-    </Link>
-  );
+function Stat({ label, value }: { label: string; value: string }) {
+  return <div className="premium-card p-5"><p className="text-[13px] text-[var(--muted)]">{label}</p><p className="mt-3 text-[24px] font-medium tracking-[-0.06em]">{value}</p></div>;
 }
