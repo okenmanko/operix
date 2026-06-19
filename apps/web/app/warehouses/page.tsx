@@ -4,22 +4,23 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import AppLayout from "../components/AppLayout";
 import { apiJson, money, num } from "../lib/api";
+import { useI18n } from "../lib/i18n";
 
 type Warehouse = {
   id: string;
   name: string;
   address?: string | null;
   productCount?: number;
+  productTypes?: number;
   totalQuantity?: number;
+  quantity?: number;
   totalValue?: number;
-  totalCostValueUSD?: number;
-  totalSaleValueUSD?: number;
+  value?: number;
 };
 
 export default function WarehousesPage() {
+  const { t } = useI18n();
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
-  const [name, setName] = useState("");
-  const [address, setAddress] = useState("");
   const [error, setError] = useState("");
 
   async function load() {
@@ -28,77 +29,57 @@ export default function WarehousesPage() {
       const data = await apiJson<Warehouse[]>("/inventory/warehouses");
       setWarehouses(Array.isArray(data) ? data : []);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Omborlar yuklanmadi");
+      setError(err instanceof Error ? err.message : t("warehouseLoadError"));
     }
   }
 
   useEffect(() => { load(); }, []);
 
-  async function create() {
-    if (!name.trim()) return;
-    await apiJson("/inventory/warehouses", { method: "POST", body: JSON.stringify({ name, address }) });
-    setName("");
-    setAddress("");
-    await load();
-  }
-
-  const totalQuantity = warehouses.reduce((sum, item) => sum + Number(item.totalQuantity || 0), 0);
-  const totalCost = warehouses.reduce((sum, item) => sum + Number(item.totalCostValueUSD || 0), 0);
-  const totalSale = warehouses.reduce((sum, item) => sum + Number(item.totalSaleValueUSD || item.totalValue || 0), 0);
+  const totalQuantity = warehouses.reduce((sum, item) => sum + Number(item.totalQuantity || item.quantity || 0), 0);
+  const totalValue = warehouses.reduce((sum, item) => sum + Number(item.totalValue || item.value || 0), 0);
 
   return (
-    <AppLayout title="Omborlar" subtitle="Skladlar ichidagi mahsulotlar, tannarx va sotuv qiymati.">
-      {error ? <div className="mb-5 rounded-[18px] border border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-600">{error}</div> : null}
+    <AppLayout title={t("warehouses")} subtitle={t("warehousesSubtitleClean")}>
+      {error ? <div className="mb-5 rounded-[22px] bg-red-50 px-5 py-4 text-red-600">{error}</div> : null}
 
-      <div className="mb-5 grid grid-cols-4 gap-4 max-lg:grid-cols-2 max-md:grid-cols-1">
-        <Stat label="Omborlar" value={`${num(warehouses.length)} ta`} />
-        <Stat label="Jami qoldiq" value={`${num(totalQuantity)} dona`} />
-        <Stat label="Tannarx summa" value={money(totalCost, "USD")} />
-        <Stat label="Sotuv summa" value={money(totalSale, "USD")} />
+      <div className="grid grid-cols-3 gap-4 max-lg:grid-cols-1">
+        <Stat label={t("warehouseCount")} value={`${num(warehouses.length)} ${t("pcsShort")}`} />
+        <Stat label={t("stockQty")} value={`${num(totalQuantity)} ${t("unitPcs")}`} />
+        <Stat label={t("warehouseValue")} value={money(totalValue, "USD")} />
       </div>
 
-      <div className="premium-card mb-5 p-6">
-        <h2 className="text-[24px] font-normal tracking-[-0.04em]">Yangi ombor</h2>
-        <div className="mt-5 grid grid-cols-[1fr_1fr_140px] gap-4 max-md:grid-cols-1">
-          <input value={name} onChange={(e) => setName(e.target.value)} className="premium-input" placeholder="Nomi" />
-          <input value={address} onChange={(e) => setAddress(e.target.value)} className="premium-input" placeholder="Manzil" />
-          <button onClick={create} className="premium-button premium-button-primary">Saqlash</button>
-        </div>
-      </div>
-
-      <div className="premium-card p-6">
-        <div className="mb-5 flex items-center justify-between gap-4">
+      <div className="premium-card mt-5 p-6">
+        <div className="flex items-center justify-between gap-4 max-md:flex-col max-md:items-stretch">
           <div>
-            <h2 className="text-[24px] font-normal tracking-[-0.04em]">Omborlar</h2>
-            <p className="mt-1 text-[13px] text-[#8aa0ba]">Ombor ustiga bosing — ichidagi mahsulotlar ochiladi.</p>
+            <h2 className="text-[26px] font-semibold tracking-[-0.06em]">{t("warehouseList")}</h2>
+            <p className="mt-1 text-[14px] text-[var(--muted)]">{t("warehouseListSubtitle")}</p>
           </div>
-          <a href="/integrations" className="inline-flex h-11 items-center justify-center rounded-[15px] bg-[#315efb] px-5 text-[13px] font-medium text-white shadow-[0_12px_26px_rgba(49,94,251,0.22)]">MoySklad sync</a>
+          <Link href="/integrations" className="premium-button premium-button-primary max-md:w-full">{t("syncMoySklad")}</Link>
         </div>
 
-        <div className="overflow-x-auto rounded-[22px] border border-[#edf2f7]">
-          <table className="w-full min-w-[900px] text-left text-[14px]">
-            <thead className="bg-[#f8fafc] text-[11px] uppercase tracking-[0.14em] text-[#8aa0ba]">
+        <div className="mt-5 overflow-hidden rounded-[24px] border border-[var(--line-soft)] bg-[var(--card)]">
+          <table className="w-full text-left text-[14px]">
+            <thead className="bg-[var(--soft-card)] text-[11px] uppercase tracking-[0.13em] text-[var(--muted-2)]">
               <tr>
-                <th className="p-4 font-normal">Nomi</th>
-                <th className="p-4 font-normal">Manzil</th>
-                <th className="p-4 font-normal">Mahsulot turi</th>
-                <th className="p-4 font-normal">Jami dona</th>
-                <th className="p-4 font-normal">Tannarx summa</th>
-                <th className="p-4 font-normal">Sotuv summa</th>
+                <th className="px-4 py-3 font-normal">{t("warehouse")}</th>
+                <th className="px-4 py-3 text-right font-normal">{t("productCount")}</th>
+                <th className="px-4 py-3 text-right font-normal">{t("quantity")}</th>
+                <th className="px-4 py-3 text-right font-normal">{t("stockValue")}</th>
               </tr>
             </thead>
             <tbody>
               {warehouses.map((warehouse) => (
-                <tr key={warehouse.id} className="border-t border-[#edf2f7] transition hover:bg-[#f8fafc]">
-                  <td className="p-4 text-[#111827]"><Link href={`/warehouses/${encodeURIComponent(warehouse.id)}`} className="hover:text-[#315efb]">{warehouse.name}</Link></td>
-                  <td className="p-4 text-[#64748b]">{warehouse.address || "—"}</td>
-                  <td className="p-4 text-[#111827]">{num(warehouse.productCount || 0)} ta</td>
-                  <td className="p-4 text-[#111827]">{num(warehouse.totalQuantity || 0)} dona</td>
-                  <td className="p-4 text-[#111827]">{money(warehouse.totalCostValueUSD || 0, "USD")}</td>
-                  <td className="p-4 text-[#111827]">{money(warehouse.totalSaleValueUSD || warehouse.totalValue || 0, "USD")}</td>
+                <tr key={warehouse.id} className="border-t border-[var(--line-soft)] transition hover:bg-[var(--soft-card)]">
+                  <td className="px-4 py-4 font-semibold">
+                    <Link href={`/warehouses/${encodeURIComponent(warehouse.id)}`} className="hover:text-[#315efb]">{warehouse.name}</Link>
+                    <p className="mt-1 text-[12px] font-normal text-[var(--muted)]">{warehouse.address || "—"}</p>
+                  </td>
+                  <td className="px-4 py-4 text-right">{num(warehouse.productCount || warehouse.productTypes || 0)}</td>
+                  <td className="px-4 py-4 text-right font-semibold">{num(warehouse.totalQuantity || warehouse.quantity || 0)} {t("unitPcs")}</td>
+                  <td className="px-4 py-4 text-right font-semibold">{money(warehouse.totalValue || warehouse.value || 0, "USD")}</td>
                 </tr>
               ))}
-              {!warehouses.length ? <tr><td colSpan={6} className="p-10 text-center text-[#8aa0ba]">Ombor yo‘q. Integratsiyalar sahifasidan MoySklad sync qiling.</td></tr> : null}
+              {!warehouses.length ? <tr><td colSpan={4} className="p-10 text-center text-[var(--muted)]">{t("noWarehouses")}</td></tr> : null}
             </tbody>
           </table>
         </div>
@@ -108,5 +89,5 @@ export default function WarehousesPage() {
 }
 
 function Stat({ label, value }: { label: string; value: string }) {
-  return <div className="premium-card p-5"><p className="text-[13px] text-[#64748b]">{label}</p><p className="mt-4 text-[26px] font-normal tracking-[-0.05em] text-[#111827]">{value}</p></div>;
+  return <div className="premium-card p-5"><p className="text-[13px] text-[var(--muted)]">{label}</p><p className="mt-4 whitespace-nowrap text-[27px] font-semibold tracking-[-0.06em]">{value}</p></div>;
 }
