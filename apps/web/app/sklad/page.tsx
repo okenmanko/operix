@@ -1,147 +1,73 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 import AppLayout from "../components/AppLayout";
 import { apiJson, money, num } from "../lib/api";
+import { useI18n } from "../lib/i18n";
 
-type Summary = {
-  products?: number;
-  warehouses?: number;
-  totalQuantity?: number;
-  totalValueUSD?: number;
-  totalValueUZS?: number;
-  totalValue?: number;
-  topWarehouses?: Array<{
-    id?: string;
-    name?: string;
-    productCount?: number;
-    totalQuantity?: number;
-    totalValueUSD?: number;
-    totalValue?: number;
-  }>;
-};
-
-type Product = {
-  id: string;
-  name: string;
-  stock?: number;
-  salePrice?: number;
-  costPrice?: number;
-  stockSaleValueUSD?: number;
-  stockValue?: number;
-  currency?: string;
-};
+type Product = { id: string; name: string; sku?: string; barcode?: string; category?: string; stock?: number; salePrice?: number; price?: number; costPrice?: number; stockSaleValueUSD?: number; stockValue?: number };
+type Warehouse = { id: string; name: string; productTypes?: number; totalQuantity?: number; totalValue?: number; quantity?: number; value?: number };
+type Summary = { productsCount?: number; warehousesCount?: number; totalQuantity?: number; totalValue?: number; totalSaleValueUSD?: number };
 
 export default function SkladPage() {
+  const { t } = useI18n();
   const [summary, setSummary] = useState<Summary>({});
   const [products, setProducts] = useState<Product[]>([]);
-  const [error, setError] = useState("");
-
-  async function load() {
-    try {
-      setError("");
-      const [s, p] = await Promise.all([
-        apiJson<Summary>("/inventory/summary"),
-        apiJson<Product[]>("/inventory/products").catch(() => []),
-      ]);
-      setSummary(s || {});
-      setProducts(Array.isArray(p) ? p : []);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Sklad yuklanmadi");
-    }
-  }
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
 
   useEffect(() => {
-    load();
+    apiJson<Summary>("/inventory/summary").then((x) => setSummary(x || {})).catch(() => null);
+    apiJson<Product[]>("/inventory/products").then((x) => setProducts(Array.isArray(x) ? x : [])).catch(() => null);
+    apiJson<Warehouse[]>("/inventory/warehouses").then((x) => setWarehouses(Array.isArray(x) ? x : [])).catch(() => null);
   }, []);
 
-  const topProducts = products
-    .slice()
-    .sort((a, b) => Number(b.stockSaleValueUSD || b.stockValue || 0) - Number(a.stockSaleValueUSD || a.stockValue || 0))
-    .slice(0, 10);
+  const totalQty = Number(summary.totalQuantity || products.reduce((s, p) => s + Number(p.stock || 0), 0));
+  const totalValue = Number(summary.totalSaleValueUSD || summary.totalValue || products.reduce((s, p) => s + Number(p.stockSaleValueUSD || p.stockValue || 0), 0));
+  const topProducts = useMemo(() => [...products].sort((a, b) => Number(b.stockSaleValueUSD || b.stockValue || 0) - Number(a.stockSaleValueUSD || a.stockValue || 0)).slice(0, 10), [products]);
 
   return (
-    <AppLayout title="Sklad" subtitle="Mahsulot, ombor, qoldiq, tannarx va sotuv narxi bitta markazda.">
-      {error ? (
-        <div className="mb-5 rounded-[18px] border border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-600">
-          {error}
-        </div>
-      ) : null}
-
-      <div className="mb-5 grid grid-cols-4 gap-4 max-xl:grid-cols-2 max-md:grid-cols-1">
-        <Stat label="Mahsulot" value={`${num(summary.products || 0)} ta`} />
-        <Stat label="Ombor" value={`${num(summary.warehouses || 0)} ta`} />
-        <Stat label="Qoldiq" value={`${num(summary.totalQuantity || 0)} dona`} />
-        <Stat label="Sklad qiymati" value={money(summary.totalValueUSD || summary.totalValue || 0, "USD")} />
+    <AppLayout title={t("sklad")} subtitle={t("skladSubtitle")}>
+      <div className="grid grid-cols-4 gap-4 max-xl:grid-cols-2 max-md:grid-cols-1">
+        <Stat label={t("productCount")} value={`${num(summary.productsCount || products.length)} ta`} />
+        <Stat label={t("warehouseCount")} value={`${num(summary.warehousesCount || warehouses.length)} ta`} />
+        <Stat label={t("stockQty")} value={`${num(totalQty)} dona`} />
+        <Stat label={t("warehouseValue")} value={money(totalValue, "USD")} />
       </div>
 
-      <div className="mb-5 flex flex-wrap gap-2">
-        <Link href="/products" className="qanot-small-button">Mahsulotlar</Link>
-        <Link href="/warehouses" className="qanot-small-button">Omborlar</Link>
-        <Link href="/inventory" className="qanot-small-button">Qoldiq</Link>
-        <Link href="/integrations" className="qanot-small-button">MoySklad sync</Link>
+      <div className="mt-5 flex flex-wrap gap-3">
+        <Link className="premium-button premium-button-soft" href="/products">{t("products")}</Link>
+        <Link className="premium-button premium-button-soft" href="/warehouses">{t("warehouses")}</Link>
+        <Link className="premium-button premium-button-soft" href="/inventory">{t("stockReport")}</Link>
+        <Link className="premium-button premium-button-primary" href="/integrations">{t("syncMoySklad")}</Link>
       </div>
 
-      <div className="grid grid-cols-[1.15fr_.85fr] gap-4 max-xl:grid-cols-1">
-        <section className="qanot-card p-5">
-          <h2 className="mb-4 text-[23px] font-semibold tracking-[-0.04em] text-[var(--text)]">Top mahsulotlar</h2>
-
-          <div className="overflow-hidden rounded-[18px] border border-[var(--line)]">
-            <table className="w-full text-left text-[13px]">
-              <thead className="bg-[var(--card-2)] text-[10px] uppercase tracking-[0.12em] text-[var(--muted-2)]">
-                <tr>
-                  <th className="px-4 py-3 font-semibold">Mahsulot</th>
-                  <th className="px-4 py-3 text-right font-semibold">Qoldiq</th>
-                  <th className="px-4 py-3 text-right font-semibold">Sotuv</th>
-                  <th className="px-4 py-3 text-right font-semibold">Qiymat</th>
-                </tr>
+      <div className="mt-5 grid grid-cols-[1.25fr_0.75fr] gap-5 max-xl:grid-cols-1">
+        <section className="premium-card p-6">
+          <h2 className="text-[26px] font-semibold tracking-[-0.06em]">{t("topProducts")}</h2>
+          <div className="mt-5 overflow-hidden rounded-[22px] border border-[var(--line-soft)]">
+            <table className="w-full text-left text-[14px]">
+              <thead className="bg-[var(--soft-card)] text-[11px] uppercase tracking-[0.13em] text-[var(--muted-2)]">
+                <tr><th className="px-4 py-3 font-normal">{t("product")}</th><th className="px-4 py-3 text-right font-normal">{t("quantity")}</th><th className="px-4 py-3 text-right font-normal">{t("salePrice")}</th><th className="px-4 py-3 text-right font-normal">{t("value")}</th></tr>
               </thead>
               <tbody>
-                {topProducts.map((product) => (
-                  <tr key={product.id} className="border-t border-[var(--line-soft)]">
-                    <td className="px-4 py-3">
-                      <div className="line-clamp-1 max-w-[360px] font-medium text-[var(--text)]">{product.name}</div>
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-right text-[var(--text)]">{num(product.stock || 0)}</td>
-                    <td className="whitespace-nowrap px-4 py-3 text-right text-[var(--text)]">{money(product.salePrice || 0, "USD")}</td>
-                    <td className="whitespace-nowrap px-4 py-3 text-right font-semibold text-[var(--text)]">{money(product.stockSaleValueUSD || product.stockValue || 0, "USD")}</td>
-                  </tr>
-                ))}
-
-                {!topProducts.length ? (
-                  <tr>
-                    <td colSpan={4} className="px-4 py-8 text-center text-[var(--muted)]">Mahsulotlar yo‘q.</td>
-                  </tr>
-                ) : null}
+                {topProducts.map((p) => {
+                  const qty = Number(p.stock || 0);
+                  const sale = Number(p.salePrice || p.price || 0);
+                  const value = Number(p.stockSaleValueUSD || p.stockValue || qty * sale || 0);
+                  return <tr key={p.id} className="border-t border-[var(--line-soft)]"><td className="px-4 py-3"><p className="font-semibold">{p.name}</p><p className="mt-1 text-[12px] text-[var(--muted)]">{p.sku || p.barcode || p.category || "—"}</p></td><td className="px-4 py-3 text-right">{num(qty)}</td><td className="px-4 py-3 text-right">{money(sale, "USD")}</td><td className="px-4 py-3 text-right font-semibold">{money(value, "USD")}</td></tr>;
+                })}
+                {!topProducts.length ? <tr><td colSpan={4} className="p-8 text-center text-[var(--muted)]">{t("noProducts")}</td></tr> : null}
               </tbody>
             </table>
           </div>
         </section>
 
-        <section className="qanot-card p-5">
-          <h2 className="mb-4 text-[23px] font-semibold tracking-[-0.04em] text-[var(--text)]">Omborlar</h2>
-
-          <div className="space-y-2">
-            {(summary.topWarehouses || []).slice(0, 8).map((warehouse) => (
-              <Link
-                key={warehouse.id || warehouse.name}
-                href={warehouse.id ? `/warehouses/${warehouse.id}` : "/warehouses"}
-                className="block rounded-[16px] border border-[var(--line)] bg-[var(--card-2)] px-4 py-3 transition hover:bg-[var(--hover)]"
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <span className="line-clamp-1 text-[14px] font-medium text-[var(--text)]">{warehouse.name || "Ombor"}</span>
-                  <span className="whitespace-nowrap text-[13px] text-[var(--muted)]">{num(warehouse.totalQuantity || 0)} dona</span>
-                </div>
-                <p className="mt-1 text-[12px] text-[var(--muted-2)]">
-                  {num(warehouse.productCount || 0)} mahsulot · {money(warehouse.totalValueUSD || warehouse.totalValue || 0, "USD")}
-                </p>
-              </Link>
-            ))}
-
-            {!(summary.topWarehouses || []).length ? (
-              <p className="text-[13px] text-[var(--muted)]">Omborlar topilmadi.</p>
-            ) : null}
+        <section className="premium-card p-6">
+          <h2 className="text-[26px] font-semibold tracking-[-0.06em]">{t("warehouses")}</h2>
+          <div className="mt-5 space-y-3">
+            {warehouses.slice(0, 8).map((w) => <Link key={w.id} href={`/warehouses/${w.id}`} className="qanot-row block p-4"><div className="flex items-center justify-between gap-4"><b className="font-semibold">{w.name}</b><span>{num(w.totalQuantity || w.quantity || 0)} dona</span></div><p className="mt-2 text-[13px] text-[var(--muted)]">{num(w.productTypes || 0)} {t("products")} · {money(w.totalValue || w.value || 0, "USD")}</p></Link>)}
+            {!warehouses.length ? <div className="soft-card p-6 text-[var(--muted)]">{t("noWarehouses")}</div> : null}
           </div>
         </section>
       </div>
@@ -149,13 +75,4 @@ export default function SkladPage() {
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="qanot-card p-5">
-      <p className="text-[13px] text-[var(--muted)]">{label}</p>
-      <p className="mt-3 max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-[24px] font-semibold tracking-[-0.025em] text-[var(--text)]">
-        {value}
-      </p>
-    </div>
-  );
-}
+function Stat({ label, value }: { label: string; value: string }) { return <div className="premium-card p-5"><p className="text-[13px] text-[var(--muted)]">{label}</p><p className="mt-4 whitespace-nowrap text-[28px] font-semibold tracking-[-0.06em]">{value}</p></div>; }

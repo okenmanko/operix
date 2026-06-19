@@ -2,257 +2,72 @@
 @import "tailwindcss";
 
 :root {
-  --bg: #f7f9fc;
-  --surface: #ffffff;
+  --bg: #f6f8fc;
   --card: #ffffff;
-  --soft: #f5f7fb;
-  --card-2: #f8fafc;
-  --border: #e6edf6;
-  --border-strong: #d8e3f2;
+  --soft: #f3f6fb;
+  --soft-card: #f8fafc;
+  --hover: #eef4ff;
   --line: #e6edf6;
-  --line-soft: #edf2f7;
-  --text: #0f172a;
-  --text-soft: #334155;
-  --muted: #64748b;
-  --muted-2: #8aa0ba;
+  --line-soft: #eef3f8;
+  --text: #071427;
+  --muted: #65748a;
+  --muted-2: #91a1b8;
   --blue: #315efb;
-  --blue-hover: #2851dc;
-  --blue-soft: #eef4ff;
+  --blue-soft: #edf4ff;
+  --blue-line: #d9e6ff;
+  --danger: #ef4444;
+  --success: #10b981;
+  --shadow: 0 20px 60px rgba(15, 23, 42, 0.055);
+  --shadow-soft: 0 12px 34px rgba(15, 23, 42, 0.04);
   --input-bg: #ffffff;
-  --input-line: #dbe6f4;
-  --focus: rgba(49, 94, 251, 0.14);
-  --hover: #f1f5fb;
-  --danger-bg: #fff5f5;
-  --danger-line: #fecaca;
-  --danger-text: #d92d20;
-  --success-bg: #ecfdf3;
-  --success-line: #bbf7d0;
-  --success-text: #047857;
-  --shadow-soft: 0 10px 28px rgba(15, 23, 42, 0.055);
-  --shadow-card: 0 22px 70px rgba(15, 23, 42, 0.06);
+  --input-line: #e6edf6;
+  --focus: rgba(49, 94, 251, 0.10);
 }
 
 html.dark,
-html[data-theme="dark"] {
-  --bg: #07101e;
-  --surface: #0d1728;
-  --card: #101b2d;
-  --soft: #0b1526;
-  --card-2: #0c1626;
-  --border: #22324a;
-  --border-strong: #314765;
-  --line: #22324a;
-  --line-soft: #1b2a40;
+body.dark,
+[data-theme="dark"] {
+  --bg: #07101f;
+  --card: #101a2b;
+  --soft: #0c1728;
+  --soft-card: #0d192c;
+  --hover: #16233a;
+  --line: #21314a;
+  --line-soft: #1a2940;
   --text: #f8fafc;
-  --text-soft: #d7e2f1;
-  --muted: #9fb0c6;
-  --muted-2: #7890ad;
-  --blue: #7da0ff;
-  --blue-hover: #6288f6;
-  --blue-soft: rgba(125, 160, 255, 0.14);
-  --input-bg: #0b1424;
-  --input-line: #263853;
-  --focus: rgba(125, 160, 255, 0.18);
-  --hover: #132036;
-  --danger-bg: rgba(127, 29, 29, 0.22);
-  --danger-line: rgba(248, 113, 113, 0.35);
-  --danger-text: #fca5a5;
-  --success-bg: rgba(6, 78, 59, 0.25);
-  --success-line: rgba(52, 211, 153, 0.35);
-  --success-text: #6ee7b7;
-  --shadow-soft: 0 12px 30px rgba(0, 0, 0, 0.24);
-  --shadow-card: 0 24px 80px rgba(0, 0, 0, 0.24);
+  --muted: #a3b1c6;
+  --muted-2: #7f91ac;
+  --blue: #7ea1ff;
+  --blue-soft: #172554;
+  --blue-line: #28427a;
+  --shadow: 0 20px 60px rgba(0, 0, 0, 0.22);
+  --shadow-soft: 0 12px 34px rgba(0, 0, 0, 0.18);
+  --input-bg: #101a2b;
+  --input-line: #21314a;
+  --focus: rgba(126, 161, 255, 0.14);
 }
 
 * { box-sizing: border-box; }
-
-html, body {
-  min-height: 100%;
-  margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  font-family: "Plus Jakarta Sans", Arial, sans-serif;
-  font-weight: 400;
-}
-
-body { overflow-x: hidden; }
-button, input, textarea { font-family: inherit; }
+html, body { min-height: 100%; margin: 0; background: var(--bg); color: var(--text); font-family: "Plus Jakarta Sans", Arial, sans-serif; font-weight: 400; }
+button, input, select, textarea { font-family: inherit; }
 button { cursor: pointer; }
-button:disabled { cursor: not-allowed; opacity: .55; }
 ::selection { background: #dbe8ff; color: #1e3a8a; }
-html.dark ::selection { background: #1e3a8a; color: #e0e7ff; }
 
-.qanot-page,
-.premium-page {
-  min-height: 100vh;
-  background:
-    radial-gradient(circle at top right, rgba(49, 94, 251, 0.07), transparent 30%),
-    var(--bg);
-  color: var(--text);
-}
+.premium-page { min-height: 100vh; background: radial-gradient(circle at top right, rgba(49, 94, 251, 0.06), transparent 34%), var(--bg); }
+.premium-card { border: 1px solid var(--line); background: var(--card); border-radius: 28px; box-shadow: var(--shadow); }
+.soft-card { border: 1px solid var(--line-soft); background: var(--soft-card); border-radius: 20px; }
 
-.premium-card,
-.qanot-card {
-  border: 1px solid var(--border);
-  background: var(--card);
-  color: var(--text);
-  border-radius: 28px;
-  box-shadow: var(--shadow-card);
-}
+.premium-input, .premium-select { height: 48px; width: 100%; border-radius: 18px; border: 1px solid var(--line); background: var(--card); color: var(--text); padding: 0 16px; font-size: 14px; outline: none; transition: 0.18s ease; box-shadow: var(--shadow-soft); }
+.premium-input:focus, .premium-select:focus { border-color: var(--blue-line); box-shadow: 0 0 0 4px rgba(49, 94, 251, 0.10); }
+.premium-label { margin-bottom: 8px; display: block; font-size: 11px; letter-spacing: 0.13em; text-transform: uppercase; color: var(--muted-2); }
+.premium-button { min-height: 46px; border-radius: 18px; padding: 0 18px; font-size: 14px; font-weight: 600; transition: 0.18s ease; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.premium-button-primary { background: #315efb; color: white; box-shadow: 0 14px 30px rgba(49, 94, 251, 0.18); }
+.premium-button-primary:hover { transform: translateY(-1px); background: #2754de; }
+.premium-button-soft { border: 1px solid var(--line); background: var(--card); color: var(--text); box-shadow: var(--shadow-soft); }
+.premium-button-soft:hover { background: var(--hover); color: var(--blue); }
 
-.qanot-card-soft {
-  border: 1px solid var(--border);
-  background: var(--soft);
-  color: var(--text);
-  border-radius: 22px;
-}
+.qanot-row { border: 1px solid var(--line-soft); background: var(--card); border-radius: 22px; box-shadow: var(--shadow-soft); }
+.qanot-pill { border: 1px solid var(--line); background: var(--card); border-radius: 999px; padding: 10px 16px; font-size: 13px; transition: 0.18s ease; }
+.qanot-pill-active { background: #315efb; color: white; border-color: #315efb; box-shadow: 0 12px 24px rgba(49, 94, 251, 0.16); }
 
-.premium-input,
-.qanot-input {
-  height: 48px;
-  width: 100%;
-  border-radius: 18px;
-  border: 1px solid var(--input-line);
-  background: var(--input-bg);
-  color: var(--text);
-  padding: 0 16px;
-  font-size: 14px;
-  font-weight: 400;
-  outline: none;
-  transition: 0.18s ease;
-}
-
-.premium-input::placeholder,
-.qanot-input::placeholder { color: var(--muted-2); }
-.premium-input:focus,
-.qanot-input:focus { border-color: var(--blue); box-shadow: 0 0 0 4px var(--focus); }
-
-.premium-label,
-.qanot-label {
-  margin-bottom: 8px;
-  display: block;
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--muted-2);
-}
-
-.premium-button,
-.qanot-button {
-  min-height: 46px;
-  border-radius: 16px;
-  padding: 0 18px;
-  font-size: 14px;
-  font-weight: 500;
-  transition: 0.18s ease;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  border: 1px solid transparent;
-  white-space: nowrap;
-}
-
-.qanot-primary,
-.premium-button-primary,
-.qanot-button-primary {
-  background: var(--blue);
-  color: white;
-  box-shadow: 0 14px 30px rgba(49, 94, 251, 0.16);
-}
-.qanot-primary:hover,
-.premium-button-primary:hover,
-.qanot-button-primary:hover { background: var(--blue-hover); }
-
-.premium-button-soft,
-.qanot-button-soft {
-  border-color: var(--border);
-  background: var(--surface);
-  color: var(--text);
-  box-shadow: var(--shadow-soft);
-}
-.premium-button-soft:hover,
-.qanot-button-soft:hover { background: var(--hover); color: var(--blue); }
-
-.premium-button-danger,
-.qanot-button-danger { background: var(--danger-bg); color: var(--danger-text); border-color: var(--danger-line); }
-
-/* Native select is intentionally hidden from main UI. Use CustomSelect for premium dropdowns. */
-select.qanot-native-hidden { display: none; }
-
-/* Global dark-mode safety net for old hardcoded pages. */
-html.dark .bg-white,
-html.dark [class*="bg-[#ffffff]"],
-html.dark [class*="bg-\[\#ffffff\]"],
-html.dark [class*="bg-[#f8fafc]"],
-html.dark [class*="bg-\[\#f8fafc\]"],
-html.dark [class*="bg-[#f5f7fa]"],
-html.dark [class*="bg-\[\#f5f7fa\]"],
-html.dark [class*="bg-[#f4f7fb]"],
-html.dark [class*="bg-\[\#f4f7fb\]"] { background-color: var(--card-2) !important; }
-
-html.dark [class*="text-[#111827]"],
-html.dark [class*="text-\[\#111827\]"],
-html.dark [class*="text-slate-950"],
-html.dark [class*="text-[#101828]"],
-html.dark [class*="text-\[\#101828\]"] { color: var(--text) !important; }
-
-html.dark [class*="text-[#64748b]"],
-html.dark [class*="text-\[\#64748b\]"],
-html.dark [class*="text-[#52637a]"],
-html.dark [class*="text-\[\#52637a\]"],
-html.dark [class*="text-[#6d7b90]"],
-html.dark [class*="text-\[\#6d7b90\]"],
-html.dark [class*="text-slate-500"] { color: var(--muted) !important; }
-
-html.dark [class*="text-[#8aa0ba]"],
-html.dark [class*="text-\[\#8aa0ba\]"],
-html.dark [class*="text-slate-400"] { color: var(--muted-2) !important; }
-
-html.dark [class*="border-[#edf2f7]"],
-html.dark [class*="border-\[\#edf2f7\]"],
-html.dark [class*="border-[#e7edf5]"],
-html.dark [class*="border-\[\#e7edf5\]"],
-html.dark [class*="border-[#dfe8f3]"],
-html.dark [class*="border-\[\#dfe8f3\]"] { border-color: var(--line) !important; }
-
-html.dark input,
-html.dark textarea {
-  background-color: var(--input-bg) !important;
-  border-color: var(--input-line) !important;
-  color: var(--text) !important;
-}
-
-html.dark table thead { background: var(--card-2) !important; }
-html.dark table tr { border-color: var(--line-soft) !important; }
-
-.operix-scrollbar::-webkit-scrollbar,
-.qanot-scrollbar::-webkit-scrollbar { width: 10px; height: 10px; }
-.operix-scrollbar::-webkit-scrollbar-thumb,
-.qanot-scrollbar::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--muted-2) 45%, transparent); border-radius: 999px; }
-.operix-scrollbar::-webkit-scrollbar-track,
-.qanot-scrollbar::-webkit-scrollbar-track { background: transparent; }
-
-@media (max-width: 1024px) {
-  .qanot-page section,
-  .premium-page section { margin-left: 0 !important; padding: 22px !important; }
-  .qanot-page aside,
-  .premium-page aside { position: static !important; width: 100% !important; height: auto !important; }
-  .premium-card, .qanot-card { border-radius: 22px; }
-  table { min-width: 760px; }
-}
-
-@media (max-width: 720px) {
-  .qanot-page section,
-  .premium-page section { padding: 16px !important; }
-  .premium-button, .qanot-button { width: 100%; }
-  .grid { grid-template-columns: 1fr !important; }
-  .premium-card, .qanot-card { padding: 18px !important; }
-}
-
-@media print {
-  aside, nav, button, .no-print { display: none !important; }
-  main, section { margin: 0 !important; padding: 0 !important; }
-  body { background: white !important; color: black !important; }
-}
+@media print { aside, nav, button, .no-print { display: none !important; } main, section { margin: 0 !important; padding: 0 !important; } body { background: white !important; } }

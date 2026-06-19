@@ -4,7 +4,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Qanot",
-  description: "Qanot Business OS",
+  description: "Business OS for owners and accountants",
 };
 
 const themeScript = `
@@ -21,12 +21,8 @@ const themeScript = `
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="uz" suppressHydrationWarning>
-      <head>
-        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
-      </head>
-      <body>
-        <Providers>{children}</Providers>
-      </body>
+      <head><script dangerouslySetInnerHTML={{ __html: themeScript }} /></head>
+      <body><Providers>{children}</Providers></body>
     </html>
   );
 }

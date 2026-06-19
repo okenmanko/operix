@@ -1,108 +1,76 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 import AppLayout from "../components/AppLayout";
-import { apiJson, money, num } from "../lib/api";
+import { apiJson, dateText, money, num } from "../lib/api";
+import { useI18n } from "../lib/i18n";
 
-type Dashboard = {
-  paymentsCount?: number;
-  todayPayments?: number;
-  todayPaymentsUZS?: number;
-  todayPaymentsUSD?: number;
-  totalPaidUZS?: number;
-  totalPaidUSD?: number;
-  remainingUZS?: number;
-  remainingUSD?: number;
-  recentPayments?: Array<{ id: string; amount: number; currency: string; method?: string; createdAt?: string; debt?: { client?: { fullName?: string } } }>;
-};
+type Dashboard = { todayPaymentsUZS?: number; todayPaymentsUSD?: number; totalPaidUZS?: number; totalPaidUSD?: number; paymentsCount?: number; remainingUZS?: number; remainingUSD?: number };
+type Payment = { id: string; amount: number; currency?: string; method?: string; comment?: string; createdAt?: string; debt?: { client?: { fullName?: string; phone?: string } } };
 
 export default function FinancePage() {
-  const [data, setData] = useState<Dashboard>({});
-  const [error, setError] = useState("");
+  const { t } = useI18n();
+  const [stats, setStats] = useState<Dashboard>({});
+  const [payments, setPayments] = useState<Payment[]>([]);
 
-  async function load() {
-    try {
-      setError("");
-      const result = await apiJson<Dashboard>("/dashboard");
-      setData(result || {});
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Moliya yuklanmadi");
-    }
-  }
+  useEffect(() => {
+    apiJson<Dashboard>("/dashboard").then((x) => setStats(x || {})).catch(() => null);
+    apiJson<Payment[]>("/payments").then((x) => setPayments(Array.isArray(x) ? x : [])).catch(() => null);
+  }, []);
 
-  useEffect(() => { load(); }, []);
+  const recent = useMemo(() => payments.slice(0, 8), [payments]);
 
   return (
-    <AppLayout title="Moliya" subtitle="Buxgalter uchun kassa, bank, to‘lov va qarz nazorati bitta joyda.">
-      {error ? <div className="mb-5 rounded-[18px] border border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-600">{error}</div> : null}
-
-      <div className="mb-5 grid grid-cols-4 gap-4 max-xl:grid-cols-2 max-md:grid-cols-1">
-        <Stat label="Bugungi UZS" value={money(data.todayPaymentsUZS ?? data.todayPayments ?? 0, "UZS")} />
-        <Stat label="Bugungi USD" value={money(data.todayPaymentsUSD || 0, "USD")} />
-        <Stat label="Jami to‘langan UZS" value={money(data.totalPaidUZS || 0, "UZS")} />
-        <Stat label="Jami to‘langan USD" value={money(data.totalPaidUSD || 0, "USD")} />
+    <AppLayout title={t("finance")} subtitle={t("financeSubtitle")}>
+      <div className="grid grid-cols-4 gap-4 max-xl:grid-cols-2 max-md:grid-cols-1">
+        <Stat label={t("todayUZS")} value={money(stats.todayPaymentsUZS || 0, "UZS")} />
+        <Stat label={t("todayUSD")} value={money(stats.todayPaymentsUSD || 0, "USD")} />
+        <Stat label={t("totalPaidUZS")} value={money(stats.totalPaidUZS || 0, "UZS")} />
+        <Stat label={t("totalPaidUSD")} value={money(stats.totalPaidUSD || 0, "USD")} />
       </div>
 
-      <div className="grid grid-cols-[.8fr_1.2fr] gap-4 max-xl:grid-cols-1">
-        <section className="premium-card p-5">
-          <h2 className="text-[24px] font-medium tracking-[-0.06em]">Tez amallar</h2>
-          <div className="mt-4 grid gap-2">
-            <Link href="/payments" className="Action">To‘lov kiritish</Link>
-            <Link href="/cashflow" className="Action">Kirim / chiqim</Link>
-            <Link href="/debts" className="Action">Qarzdorlar</Link>
-            <Link href="/reports" className="Action">Hisobot</Link>
+      <div className="mt-5 grid grid-cols-[0.9fr_1.2fr] gap-5 max-xl:grid-cols-1">
+        <section className="premium-card p-6">
+          <h2 className="text-[26px] font-semibold tracking-[-0.06em]">{t("financeActions")}</h2>
+          <div className="mt-5 grid gap-3">
+            <Link className="premium-button premium-button-primary justify-start" href="/debts">{t("enterPayment")}</Link>
+            <Link className="premium-button premium-button-soft justify-start" href="/cashflow">{t("incomeExpense")}</Link>
+            <Link className="premium-button premium-button-soft justify-start" href="/reports">{t("dailyReport")}</Link>
+          </div>
+
+          <div className="mt-6 soft-card p-5">
+            <h3 className="text-[20px] font-semibold tracking-[-0.05em]">{t("accountantChecklist")}</h3>
+            <div className="mt-4 space-y-3 text-[14px] text-[var(--muted)]">
+              <Check text={t("checklist1")} />
+              <Check text={t("checklist2")} />
+              <Check text={t("checklist3")} />
+            </div>
           </div>
         </section>
 
-        <section className="premium-card p-5">
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <h2 className="text-[24px] font-medium tracking-[-0.06em]">Oxirgi to‘lovlar</h2>
-            <span className="qanot-pill">{num(data.paymentsCount || 0)} ta</span>
+        <section className="premium-card p-6">
+          <div className="mb-5 flex items-center justify-between gap-4">
+            <h2 className="text-[26px] font-semibold tracking-[-0.06em]">{t("recentPayments")}</h2>
+            <span className="text-[14px] text-[var(--muted)]">{num(payments.length)} ta</span>
           </div>
-
-          <div className="qanot-table-wrap overflow-hidden rounded-[18px] border border-[var(--line)]">
-            <table className="qanot-table">
-              <thead>
-                <tr>
-                  <th className="text-left">Klient</th>
-                  <th className="text-left">Usul</th>
-                  <th className="text-right">Summa</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(data.recentPayments || []).slice(0, 10).map((payment) => (
-                  <tr key={payment.id}>
-                    <td>{payment.debt?.client?.fullName || "—"}</td>
-                    <td className="text-[var(--muted)]">{payment.method || "—"}</td>
-                    <td className="text-right">{money(payment.amount, payment.currency || "UZS")}</td>
-                  </tr>
-                ))}
-                {!(data.recentPayments || []).length ? (
-                  <tr><td colSpan={3} className="text-center text-[var(--muted)]">To‘lovlar topilmadi.</td></tr>
-                ) : null}
-              </tbody>
-            </table>
+          <div className="space-y-3">
+            {recent.map((payment) => (
+              <div key={payment.id} className="qanot-row grid grid-cols-[1fr_auto] gap-4 p-4">
+                <div>
+                  <p className="font-semibold">{payment.debt?.client?.fullName || payment.debt?.client?.phone || "—"}</p>
+                  <p className="mt-1 text-[13px] text-[var(--muted)]">{dateText(payment.createdAt)} · {payment.method || t("cash")}</p>
+                </div>
+                <b className="whitespace-nowrap text-[15px] font-semibold">{money(payment.amount, payment.currency || "UZS")}</b>
+              </div>
+            ))}
+            {!recent.length ? <div className="soft-card p-6 text-[var(--muted)]">{t("noRecentPayments")}</div> : null}
           </div>
         </section>
       </div>
-
-      <style jsx>{`
-        .Action {
-          border: 1px solid var(--line);
-          background: var(--soft-card);
-          border-radius: 16px;
-          padding: 14px 16px;
-          font-size: 14px;
-          color: var(--text);
-          transition: .18s ease;
-        }
-        .Action:hover { background: var(--hover); color: var(--blue); }
-      `}</style>
     </AppLayout>
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
-  return <div className="premium-card p-5"><p className="text-[13px] text-[var(--muted)]">{label}</p><p className="mt-3 text-[24px] font-medium tracking-[-0.06em]">{value}</p></div>;
-}
+function Stat({ label, value }: { label: string; value: string }) { return <div className="premium-card p-5"><p className="text-[13px] text-[var(--muted)]">{label}</p><p className="mt-4 whitespace-nowrap text-[28px] font-semibold tracking-[-0.06em]">{value}</p></div>; }
+function Check({ text }: { text: string }) { return <div className="flex gap-3"><span className="mt-1 h-2 w-2 rounded-full bg-[var(--blue)]" /><span>{text}</span></div>; }
