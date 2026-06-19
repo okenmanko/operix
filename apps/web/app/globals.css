@@ -285,3 +285,41 @@ html, body {
 @media (max-width: 720px) {
   .qanot-title { font-size: 24px; }
 }
+
+/* QANOT 37: disciplined numeric typography */
+.qanot-title,
+.premium-card h1,
+.premium-card h2,
+.qanot-card h1,
+.qanot-card h2 {
+  word-spacing: 0.06em;
+}
+
+.qanot-card,
+.premium-card {
+  overflow-wrap: normal;
+}
+
+.qanot-card table,
+.premium-card table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.qanot-card td,
+.qanot-card th,
+.premium-card td,
+.premium-card th {
+  line-height: 1.45;
+}
+
+.qanot-title {
+  letter-spacing: -0.045em;
+}
+
+.money-value,
+.qanot-money {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.015em;
+}

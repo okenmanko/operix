@@ -22,6 +22,15 @@ type Dashboard = {
   activeDebts?: number;
   closedDebts?: number;
   overdueDebts?: number;
+  topDebtors?: Array<{
+    id?: string;
+    fullName?: string;
+    clientName?: string;
+    phone?: string;
+    total?: number;
+    remaining?: number;
+    currency?: string;
+  }>;
 };
 
 type InventorySummary = {
@@ -48,6 +57,7 @@ const empty: Dashboard = {
   activeDebts: 0,
   closedDebts: 0,
   overdueDebts: 0,
+  topDebtors: [],
 };
 
 export default function DashboardPage() {
@@ -64,8 +74,11 @@ export default function DashboardPage() {
         apiJson<InventorySummary>("/inventory/summary"),
       ]);
 
-      if (dashboard.status === "fulfilled") setData({ ...empty, ...(dashboard.value || {}) });
-      else throw dashboard.reason;
+      if (dashboard.status === "fulfilled") {
+        setData({ ...empty, ...(dashboard.value || {}) });
+      } else {
+        throw dashboard.reason;
+      }
 
       if (stock.status === "fulfilled") setInventory(stock.value || {});
     } catch (err: unknown) {
@@ -82,8 +95,10 @@ export default function DashboardPage() {
     const active = Number(data.activeDebts || data.debtsCount || 0);
     const stock = Number(inventory.totalQuantity || 0);
     let score = 92;
-    if (active > 0) score -= Math.min(18, Math.round((overdue / active) * 30));
-    if (stock <= 0) score -= 8;
+
+    if (active > 0) score -= Math.min(22, Math.round((overdue / active) * 42));
+    if (stock <= 0) score -= 10;
+
     return Math.max(45, Math.min(99, score));
   }, [data, inventory]);
 
@@ -93,66 +108,72 @@ export default function DashboardPage() {
   const stockValue = Number(inventory.totalValueUSD || inventory.totalValue || 0);
 
   return (
-    <AppLayout title="Qanot" subtitle={t("dashboardSubtitle")}>
+    <AppLayout title="Qanot" subtitle="Pul, qarz va sklad bitta tartibli ekranda.">
       {error ? <ErrorBox text={error} /> : null}
 
-      <div className="grid grid-cols-[1.5fr_0.95fr] gap-5 max-xl:grid-cols-1">
-        <section className="qanot-card p-6">
-          <div className="mb-5 flex items-start justify-between gap-4 max-sm:flex-col">
-            <div>
-              <p className="qanot-eyebrow">Owner view</p>
-              <h2 className="qanot-title mt-2">{t("ownerPanel")}</h2>
-              <p className="mt-2 text-[14px] leading-6 text-[var(--muted)]">
-                {t("ownerPanelSubtitle")}
-              </p>
-            </div>
-            <Link href="/reports" className="qanot-small-button">
-              {t("openReport")}
-            </Link>
+      <section className="qanot-card p-6">
+        <div className="mb-6 flex items-start justify-between gap-4 max-md:flex-col">
+          <div>
+            <p className="qanot-eyebrow">Owner view</p>
+            <h2 className="qanot-title mt-2">Bugungi boshqaruv paneli</h2>
+            <p className="mt-2 text-[14px] leading-6 text-[var(--muted)]">
+              Egaga kerak bo‘lgan asosiy raqamlar: pul, qarz, sklad va xavf.
+            </p>
           </div>
+          <Link href="/reports" className="qanot-small-button">
+            {t("openReport", "Hisobot")}
+          </Link>
+        </div>
 
-          <div className="grid grid-cols-4 gap-3 max-lg:grid-cols-2 max-sm:grid-cols-1">
-            <FocusCard label={t("todayRevenue")} value={money(todayUZS, "UZS")} hint={money(todayUSD, "USD")} />
-            <FocusCard label={t("debtRisk")} value={num(data.debtsCount || data.activeDebts || 0)} hint={`${num(overdue)} overdue`} />
-            <FocusCard label={t("stockValue")} value={money(stockValue, "USD")} hint={`${num(inventory.products || 0)} product`} />
-            <FocusCard label={t("businessHealth")} value={`${health}%`} hint={health < 80 ? t("attentionNeeded") : "stable"} />
-          </div>
-        </section>
-
-        <section className="qanot-card p-6">
-          <p className="qanot-eyebrow">{t("aiDirector")}</p>
-          <h2 className="qanot-title mt-2">{t("todayAdvice")}</h2>
-          <p className="mt-5 text-[14px] leading-7 text-[var(--muted)]">
-            {t("aiAdviceText")}
-          </p>
-
-          <div className="mt-5 space-y-2">
-            <Signal value={`${num(overdue)} ${t("overdueDebtsText")}`} />
-            <Signal value={`${money(data.remainingUSD || 0, "USD")} ${t("usdDebtText")}`} />
-            <Signal value={Number(inventory.totalQuantity || 0) > 0 ? `${num(inventory.totalQuantity)} dona sklad nazoratda` : t("stockSyncText")} />
-          </div>
-        </section>
-      </div>
+        <div className="grid grid-cols-4 gap-4 max-xl:grid-cols-2 max-sm:grid-cols-1">
+          <FocusCard label="Bugungi tushum" value={money(todayUZS, "UZS")} hint={money(todayUSD, "USD")} />
+          <FocusCard label="Qarz riski" value={num(data.debtsCount || data.activeDebts || 0)} hint={`${num(overdue)} muddati o‘tgan`} />
+          <FocusCard label="Sklad qiymati" value={money(stockValue, "USD")} hint={`${num(inventory.products || 0)} mahsulot`} />
+          <FocusCard label="Business health" value={`${health}%`} hint={health < 80 ? "E’tibor kerak" : "Barqaror"} />
+        </div>
+      </section>
 
       <div className="mt-5 grid grid-cols-3 gap-5 max-xl:grid-cols-1">
-        <MiniPanel title={t("money")}>
-          <Metric label={t("uzsIncome")} value={money(todayUZS, "UZS")} />
-          <Metric label={t("usdIncome")} value={money(todayUSD, "USD")} />
-          <Metric label={t("paymentCount")} value={num(data.paymentsCount || 0)} />
+        <MiniPanel title="Pul">
+          <Metric label="UZS tushum" value={money(todayUZS, "UZS")} />
+          <Metric label="USD tushum" value={money(todayUSD, "USD")} />
+          <Metric label="To‘lovlar soni" value={num(data.paymentsCount || 0)} />
         </MiniPanel>
 
-        <MiniPanel title={t("debtsBlock")}>
-          <Metric label={t("uzsRemaining")} value={money(data.remainingUZS || 0, "UZS")} />
-          <Metric label={t("usdRemaining")} value={money(data.remainingUSD || 0, "USD")} />
-          <Metric label={t("activeDebt")} value={num(data.activeDebts || data.debtsCount || 0)} />
+        <MiniPanel title="Qarzlar">
+          <Metric label="UZS qoldiq" value={money(data.remainingUZS || 0, "UZS")} />
+          <Metric label="USD qoldiq" value={money(data.remainingUSD || 0, "USD")} />
+          <Metric label="Aktiv qarz" value={num(data.activeDebts || data.debtsCount || 0)} />
         </MiniPanel>
 
-        <MiniPanel title={t("stockBlock")}>
-          <Metric label={t("productTypes")} value={num(inventory.products || 0)} />
-          <Metric label={t("warehouseCount")} value={num(inventory.warehouses || 0)} />
-          <Metric label={t("stockPieces")} value={num(inventory.totalQuantity || 0)} />
+        <MiniPanel title="Sklad">
+          <Metric label="Mahsulot turi" value={num(inventory.products || 0)} />
+          <Metric label="Omborlar" value={num(inventory.warehouses || 0)} />
+          <Metric label="Qoldiq dona" value={num(inventory.totalQuantity || 0)} />
         </MiniPanel>
       </div>
+
+      <section className="qanot-card mt-5 p-6">
+        <div className="mb-5 flex items-center justify-between gap-4 max-md:flex-col max-md:items-start">
+          <div>
+            <h2 className="text-[23px] font-semibold leading-tight tracking-[-0.04em] text-[var(--text)]">
+              Nazorat signallari
+            </h2>
+            <p className="mt-2 text-[13px] leading-6 text-[var(--muted)]">
+              Kunlik tekshiruv uchun eng muhim xavflar.
+            </p>
+          </div>
+          <Link href="/debts" className="qanot-small-button">
+            Qarzdorlarni ochish
+          </Link>
+        </div>
+
+        <div className="grid grid-cols-3 gap-3 max-lg:grid-cols-1">
+          <Signal label="Muddati o‘tgan qarz" value={`${num(overdue)} ta`} tone={overdue > 0 ? "warning" : "good"} />
+          <Signal label="USD qarz" value={money(data.remainingUSD || 0, "USD")} tone={Number(data.remainingUSD || 0) > 0 ? "warning" : "good"} />
+          <Signal label="Sklad qoldiq" value={`${num(inventory.totalQuantity || 0)} dona`} tone={Number(inventory.totalQuantity || 0) > 0 ? "good" : "warning"} />
+        </div>
+      </section>
     </AppLayout>
   );
 }
@@ -165,18 +186,12 @@ function FocusCard({ label, value, hint }: { label: string; value: string; hint:
   return (
     <div className="rounded-[20px] border border-[var(--line)] bg-[var(--card-2)] p-4">
       <p className="text-[12px] leading-5 text-[var(--muted)]">{label}</p>
-      <p className="mt-3 whitespace-nowrap text-[25px] font-semibold leading-none tracking-[-0.065em] text-[var(--text)]">
+      <p className="mt-3 max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-[24px] font-semibold leading-none tracking-[-0.025em] text-[var(--text)]">
         {value}
       </p>
-      <p className="mt-3 text-[12px] leading-5 text-[var(--muted-2)]">{hint}</p>
-    </div>
-  );
-}
-
-function Signal({ value }: { value: string }) {
-  return (
-    <div className="rounded-[16px] bg-[var(--card-2)] px-4 py-3 text-[13px] leading-5 text-[var(--text)]">
-      {value}
+      <p className="mt-3 overflow-hidden text-ellipsis whitespace-nowrap text-[12px] leading-5 text-[var(--muted-2)]">
+        {hint}
+      </p>
     </div>
   );
 }
@@ -184,7 +199,7 @@ function Signal({ value }: { value: string }) {
 function MiniPanel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="qanot-card p-5">
-      <h2 className="text-[22px] font-semibold leading-tight tracking-[-0.06em] text-[var(--text)]">
+      <h2 className="text-[22px] font-semibold leading-tight tracking-[-0.04em] text-[var(--text)]">
         {title}
       </h2>
       <div className="mt-5 space-y-2">{children}</div>
@@ -196,7 +211,18 @@ function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex min-h-11 items-center justify-between gap-4 rounded-[16px] bg-[var(--card-2)] px-4 py-2.5">
       <span className="text-[13px] leading-5 text-[var(--muted)]">{label}</span>
-      <span className="whitespace-nowrap text-[13px] font-semibold leading-5 text-[var(--text)]">{value}</span>
+      <span className="whitespace-nowrap text-[13px] font-semibold leading-5 tracking-normal text-[var(--text)]">{value}</span>
+    </div>
+  );
+}
+
+function Signal({ label, value, tone }: { label: string; value: string; tone: "good" | "warning" }) {
+  return (
+    <div className="rounded-[18px] border border-[var(--line)] bg-[var(--card-2)] p-4">
+      <p className="text-[12px] leading-5 text-[var(--muted)]">{label}</p>
+      <p className={`mt-2 whitespace-nowrap text-[20px] font-semibold tracking-[-0.02em] ${tone === "good" ? "text-emerald-600" : "text-amber-600"}`}>
+        {value}
+      </p>
     </div>
   );
 }

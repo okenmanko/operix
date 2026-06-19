@@ -269,11 +269,11 @@ export async function downloadFile(path: string, filename: string) {
 
 export function num(value: number | string | null | undefined) {
   const n = Number(value || 0);
-  return Number.isFinite(n) ? n.toLocaleString("ru-RU") : "0";
+  return Number.isFinite(n) ? n.toLocaleString("ru-RU").replace(/\s/g, " ") : "0";
 }
 
 export function money(value: number | string | null | undefined, currency = "UZS") {
-  return `${num(value)} ${currency}`;
+  return `${num(value)} ${currency}`;
 }
 
 export function formatMoney(value: number | string | null | undefined, currency = "UZS") {
