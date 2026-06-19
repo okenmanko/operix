@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 
 type CheckoutItem = {
   stockItemId?: string;
+  productId?: string;
   qrCode?: string;
   price?: number;
   quantity?: number;
@@ -32,9 +33,77 @@ function saleNumber() {
 export class SalesService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private safeNumber(value: any) {
+    const n = Number(value || 0);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  async searchProducts(companyId: string, q: string) {
+    const clean = String(q || '').trim();
+    if (clean.length < 1) return [];
+
+    const terms = clean
+      .toLowerCase()
+      .split(/\s+/)
+      .map((x) => x.trim())
+      .filter(Boolean);
+
+    const rows = await this.prisma.product.findMany({
+      where: {
+        companyId,
+        isActive: true,
+        OR: [
+          { name: { contains: clean, mode: 'insensitive' } },
+          { sku: { contains: clean, mode: 'insensitive' } },
+          { model: { contains: clean, mode: 'insensitive' } },
+          { barcode: { contains: clean, mode: 'insensitive' } },
+          { category: { contains: clean, mode: 'insensitive' } },
+          ...terms.flatMap((term) => [
+            { name: { contains: term, mode: 'insensitive' } },
+            { sku: { contains: term, mode: 'insensitive' } },
+            { model: { contains: term, mode: 'insensitive' } },
+            { barcode: { contains: term, mode: 'insensitive' } },
+            { category: { contains: term, mode: 'insensitive' } },
+          ]),
+        ],
+      } as any,
+      include: {
+        stockItems: {
+          where: { status: 'IN_STOCK' },
+          include: { warehouse: true },
+          take: 5,
+          orderBy: { createdAt: 'asc' },
+        },
+      } as any,
+      take: 30,
+      orderBy: { updatedAt: 'desc' },
+    } as any);
+
+    return rows.map((product: any) => {
+      const stockItems = Array.isArray(product.stockItems) ? product.stockItems : [];
+      const firstStock = stockItems[0];
+      return {
+        id: product.id,
+        productId: product.id,
+        name: product.name,
+        productName: product.name,
+        sku: product.sku || product.model || '',
+        model: product.model || product.sku || '',
+        barcode: product.barcode || '',
+        category: product.category || '',
+        warehouseName: firstStock?.warehouse?.name || '',
+        stockItemId: firstStock?.id || null,
+        stock: stockItems.length,
+        salePrice: this.safeNumber(firstStock?.salePrice ?? product.salePrice ?? product.price ?? 0),
+        costPrice: this.safeNumber(firstStock?.costPrice ?? product.costPrice ?? 0),
+        currency: firstStock?.currency || product.currency || 'USD',
+      };
+    });
+  }
+
   async scan(companyId: string, code: string) {
     const clean = String(code || '').trim();
-    if (!clean) throw new BadRequestException('QR kod kiriting');
+    if (!clean) throw new BadRequestException('QR kod yoki mahsulot nomini kiriting');
 
     const item = await this.prisma.stockItem.findFirst({
       where: {
@@ -44,24 +113,31 @@ export class SalesService {
       include: { product: true, warehouse: true },
     });
 
-    if (!item) throw new NotFoundException('Tovar topilmadi');
-    if (item.status !== 'IN_STOCK') {
-      throw new BadRequestException(`Bu tovar sotuvga yaroqsiz: ${item.status}`);
+    if (item) {
+      if (item.status !== 'IN_STOCK') {
+        throw new BadRequestException(`Bu tovar sotuvga yaroqsiz: ${item.status}`);
+      }
+
+      return {
+        id: item.id,
+        stockItemId: item.id,
+        qrCode: item.qrCode,
+        serialNumber: item.serialNumber,
+        status: item.status,
+        productId: item.productId,
+        productName: item.product?.name,
+        sku: item.product?.sku,
+        warehouseId: item.warehouseId,
+        warehouseName: item.warehouse?.name,
+        stock: 1,
+        salePrice: item.salePrice ?? item.product?.salePrice ?? 0,
+        currency: item.currency || item.product?.currency || 'USD',
+      };
     }
 
-    return {
-      id: item.id,
-      qrCode: item.qrCode,
-      serialNumber: item.serialNumber,
-      status: item.status,
-      productId: item.productId,
-      productName: item.product?.name,
-      sku: item.product?.sku,
-      warehouseId: item.warehouseId,
-      warehouseName: item.warehouse?.name,
-      salePrice: item.salePrice ?? item.product?.salePrice ?? 0,
-      currency: item.currency || item.product?.currency || 'UZS',
-    };
+    const found = await this.searchProducts(companyId, clean);
+    if (!found.length) throw new NotFoundException('Tovar topilmadi');
+    return found[0];
   }
 
   async checkout(companyId: string, userId: string, body: any) {
@@ -69,82 +145,141 @@ export class SalesService {
     if (!items.length) throw new BadRequestException('Savat bo‘sh');
 
     const method = String(body?.method || 'CASH').toUpperCase();
-    const currency = String(body?.currency || 'UZS').toUpperCase();
+    const currency = String(body?.currency || 'USD').toUpperCase();
     const customerName = body?.customerName ? String(body.customerName) : null;
+    const customerPhone = body?.customerPhone ? String(body.customerPhone) : null;
     const comment = body?.comment ? String(body.comment) : null;
-    const discount = Number(body?.discount || 0);
+    const discount = this.safeNumber(body?.discount);
 
     return this.prisma.$transaction(async (tx) => {
       const saleItems: any[] = [];
-      let total = 0;
+      let subtotal = 0;
 
       for (const row of items) {
-        const found = await tx.stockItem.findFirst({
-          where: {
-            companyId,
-            OR: [
-              row.stockItemId ? { id: row.stockItemId } : undefined,
-              row.qrCode ? { qrCode: row.qrCode } : undefined,
-            ].filter(Boolean) as any[],
-          },
-          include: { product: true },
-        });
+        const quantity = Math.max(1, Math.floor(this.safeNumber(row.quantity || 1)));
 
-        if (!found) throw new NotFoundException('Savatdagi tovar topilmadi');
-        if (found.status !== 'IN_STOCK') {
-          throw new BadRequestException(`${found.qrCode} allaqachon sotilgan yoki sotuvga yaroqsiz`);
-        }
+        if (row.stockItemId || row.qrCode) {
+          const found = await tx.stockItem.findFirst({
+            where: {
+              companyId,
+              OR: [
+                row.stockItemId ? { id: row.stockItemId } : undefined,
+                row.qrCode ? { qrCode: row.qrCode } : undefined,
+              ].filter(Boolean) as any[],
+            },
+            include: { product: true },
+          });
 
-        const price = Number(row.price ?? found.salePrice ?? found.product?.salePrice ?? 0);
-        if (price < 0) throw new BadRequestException('Narx noto‘g‘ri');
+          if (!found) throw new NotFoundException('Savatdagi tovar topilmadi');
+          if (found.status !== 'IN_STOCK') {
+            throw new BadRequestException(`${found.qrCode} allaqachon sotilgan yoki sotuvga yaroqsiz`);
+          }
 
-        total += price;
+          const price = this.safeNumber(row.price ?? found.salePrice ?? found.product?.salePrice ?? 0);
+          if (price < 0) throw new BadRequestException('Narx noto‘g‘ri');
+          subtotal += price;
 
-        await tx.stockItem.update({
-          where: { id: found.id },
-          data: { status: 'SOLD', salePrice: price, currency },
-        });
+          await tx.stockItem.update({
+            where: { id: found.id },
+            data: { status: 'SOLD', salePrice: price, currency },
+          });
 
-        await tx.stockMovement.create({
-          data: {
-            companyId,
+          await tx.stockMovement.create({
+            data: {
+              companyId,
+              productId: found.productId,
+              stockItemId: found.id,
+              warehouseId: found.warehouseId,
+              type: 'OUT',
+              quantity: 1,
+              reason: 'SALE',
+              comment: 'POS sotuv',
+            },
+          });
+
+          saleItems.push({
             productId: found.productId,
             stockItemId: found.id,
-            warehouseId: found.warehouseId,
-            type: 'OUT',
             quantity: 1,
-            reason: 'SALE',
-            comment: 'POS sotuv',
-          },
+            price,
+            total: price,
+          });
+
+          continue;
+        }
+
+        if (!row.productId) throw new NotFoundException('Savatdagi mahsulot topilmadi');
+
+        const product = await tx.product.findFirst({
+          where: { id: row.productId, companyId },
+        });
+        if (!product) throw new NotFoundException('Mahsulot topilmadi');
+
+        const price = this.safeNumber(row.price ?? product.salePrice ?? 0);
+        if (price < 0) throw new BadRequestException('Narx noto‘g‘ri');
+        subtotal += price * quantity;
+
+        const stockItems = await tx.stockItem.findMany({
+          where: { companyId, productId: product.id, status: 'IN_STOCK' },
+          take: quantity,
+          orderBy: { createdAt: 'asc' },
         });
 
+        for (const stock of stockItems) {
+          await tx.stockItem.update({
+            where: { id: stock.id },
+            data: { status: 'SOLD', salePrice: price, currency },
+          });
+          await tx.stockMovement.create({
+            data: {
+              companyId,
+              productId: product.id,
+              stockItemId: stock.id,
+              warehouseId: stock.warehouseId,
+              type: 'OUT',
+              quantity: 1,
+              reason: 'SALE',
+              comment: 'POS sotuv',
+            },
+          });
+        }
+
+        if (stockItems.length < quantity) {
+          await tx.stockMovement.create({
+            data: {
+              companyId,
+              productId: product.id,
+              type: 'OUT',
+              quantity,
+              reason: 'SALE',
+              comment: 'POS sotuv product-level',
+            },
+          });
+        }
+
         saleItems.push({
-          productId: found.productId,
-          stockItemId: found.id,
-          warehouseId: found.warehouseId,
-          productName: found.product?.name || 'Noma’lum tovar',
-          qrCode: found.qrCode,
-          serialNumber: found.serialNumber,
-          quantity: 1,
+          productId: product.id,
+          quantity,
           price,
-          total: price,
-          currency,
+          total: price * quantity,
         });
       }
 
-      const finalTotal = Math.max(total - discount, 0);
+      const totalAmount = Math.max(subtotal - discount, 0);
 
       const sale = await tx.sale.create({
         data: {
           companyId,
           cashierId: userId,
           saleNumber: saleNumber(),
-          totalAmount: finalTotal,
+          subtotal,
+          totalAmount,
           discount,
           currency,
           method,
           status: 'COMPLETED',
           customerName,
+          customerPhone,
           comment,
           items: { create: saleItems },
         },
@@ -155,7 +290,7 @@ export class SalesService {
         data: {
           companyId,
           type: 'INCOME',
-          amount: finalTotal,
+          amount: totalAmount,
           currency,
           category: 'POS_SALE',
           method,
@@ -177,14 +312,14 @@ export class SalesService {
       if (filters.dateTo) where.createdAt.lte = new Date(filters.dateTo);
     }
 
-    const sales = await this.prisma.sale.findMany({
+    const rows = await this.prisma.sale.findMany({
       where,
       orderBy: { createdAt: 'desc' },
-      include: { items: true },
+      include: { items: { include: { product: true } } },
       take: 300,
     });
 
-    return { sales };
+    return rows;
   }
 
   async getOne(companyId: string, id: string) {

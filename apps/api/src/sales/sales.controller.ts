@@ -23,6 +23,11 @@ export class SalesController {
     return this.service.summary(user.companyId);
   }
 
+  @Get('search')
+  search(@CurrentUser() user: AuthUser, @Query('q') q?: string) {
+    return this.service.searchProducts(user.companyId, q || '');
+  }
+
   @Post('scan')
   scan(@CurrentUser() user: AuthUser, @Body() body: { code: string }) {
     return this.service.scan(user.companyId, body.code);
