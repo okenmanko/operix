@@ -38,48 +38,49 @@ export class SalesService {
     return Number.isFinite(n) ? n : 0;
   }
 
-  private normalizeSearch(value: any) {
-    return String(value || "")
+  private normalizeText(value: any) {
+    return String(value || '')
+      .trim()
       .toLowerCase()
-      .replace(/[^a-z0-9а-яё]+/gi, "")
-      .trim();
+      .replace(/[’'`]/g, '')
+      .replace(/[\s\-_/.,:;()\[\]{}]+/g, '')
+      .replace(/ё/g, 'е');
   }
 
-  private buildSearchText(product: any) {
-    return [
-      product?.name,
-      product?.productName,
-      product?.sku,
-      product?.model,
-      product?.barcode,
-      product?.category,
-      product?.brand,
-    ]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase();
-  }
+  private productRank(product: any, query: string) {
+    const q = String(query || '').trim().toLowerCase();
+    const nq = this.normalizeText(q);
+    if (!nq) return 0;
 
-  private productScore(product: any, query: string) {
-    const raw = String(query || "").trim().toLowerCase();
-    const compactQuery = this.normalizeSearch(raw);
-    const text = this.buildSearchText(product);
-    const compactText = this.normalizeSearch(text);
-    const barcode = this.normalizeSearch(product?.barcode);
-    const sku = this.normalizeSearch(product?.sku || product?.model);
-    const terms = raw.split(/\s+/).map((x) => x.trim()).filter(Boolean);
-    const compactTerms = terms.map((x) => this.normalizeSearch(x)).filter(Boolean);
+    const fields = [
+      product.name,
+      product.sku,
+      product.model,
+      product.barcode,
+      product.category,
+      product.brand,
+      product.description,
+    ];
+    const normalizedFields = fields.map((item) => this.normalizeText(item));
+    const haystack = this.normalizeText(fields.join(' '));
 
-    if (!raw) return 0;
-    if (barcode && barcode === compactQuery) return 1000;
-    if (sku && sku === compactQuery) return 950;
-    if (compactText.startsWith(compactQuery)) return 900;
-    if (text.includes(raw)) return 850;
-    if (compactText.includes(compactQuery)) return 800;
-    if (compactTerms.length && compactTerms.every((term) => compactText.includes(term))) return 740;
-    if (terms.length && terms.every((term) => text.includes(term))) return 700;
-    if (compactTerms.some((term) => compactText.includes(term))) return 420;
-    return 0;
+    if (normalizedFields.some((field) => field === nq)) return 100;
+    if (normalizedFields.some((field) => field.startsWith(nq))) return 90;
+    if (haystack.includes(nq)) return 75;
+
+    const terms = q.split(/\s+/).map((term) => this.normalizeText(term)).filter(Boolean);
+    if (terms.length && terms.every((term) => haystack.includes(term))) return 65;
+
+    let score = 0;
+    let idx = 0;
+    for (const char of nq) {
+      idx = haystack.indexOf(char, idx);
+      if (idx === -1) break;
+      score += 1;
+      idx += 1;
+    }
+
+    return score >= Math.min(3, nq.length) ? 35 + score : 0;
   }
 
   async searchProducts(companyId: string, q: string) {
@@ -87,47 +88,76 @@ export class SalesService {
     if (clean.length < 1) return [];
 
     const prismaAny = this.prisma as any;
+    const terms = clean.split(/\s+/).map((x) => x.trim()).filter(Boolean);
+    const orRules: any[] = [
+      { name: { contains: clean, mode: 'insensitive' } },
+      { sku: { contains: clean, mode: 'insensitive' } },
+      { model: { contains: clean, mode: 'insensitive' } },
+      { barcode: { contains: clean, mode: 'insensitive' } },
+      { category: { contains: clean, mode: 'insensitive' } },
+      { brand: { contains: clean, mode: 'insensitive' } },
+      ...terms.flatMap((term) => [
+        { name: { contains: term, mode: 'insensitive' } },
+        { sku: { contains: term, mode: 'insensitive' } },
+        { model: { contains: term, mode: 'insensitive' } },
+        { barcode: { contains: term, mode: 'insensitive' } },
+        { category: { contains: term, mode: 'insensitive' } },
+        { brand: { contains: term, mode: 'insensitive' } },
+      ]),
+    ];
 
-    const [products, balanceRows] = await Promise.all([
-      prismaAny.product.findMany({
-        where: { companyId, isActive: true },
-        take: 1200,
+    let rows: any[] = [];
+    try {
+      rows = await prismaAny.product.findMany({
+        where: { companyId, OR: orRules },
+        include: {
+          stockItems: {
+            where: { status: 'IN_STOCK' },
+            include: { warehouse: true },
+            take: 20,
+            orderBy: { createdAt: 'asc' },
+          },
+        },
+        take: 80,
         orderBy: { updatedAt: 'desc' },
-      }),
-      prismaAny.inventoryBalance?.findMany
-        ? prismaAny.inventoryBalance.findMany({
-            where: { companyId },
-            include: { product: true, warehouse: true },
-            take: 5000,
-            orderBy: { updatedAt: 'desc' },
-          })
-        : Promise.resolve([]),
-    ]);
-
-    const balanceByProduct = new Map<string, any[]>();
-    for (const row of Array.isArray(balanceRows) ? balanceRows : []) {
-      const productId = row?.productId || row?.product?.id;
-      if (!productId) continue;
-      const list = balanceByProduct.get(productId) || [];
-      list.push(row);
-      balanceByProduct.set(productId, list);
+      });
+    } catch {
+      rows = await prismaAny.product.findMany({
+        where: { companyId, OR: orRules },
+        take: 80,
+        orderBy: { updatedAt: 'desc' },
+      });
     }
 
-    const results = (products || [])
-      .map((product: any) => {
-        const rows = balanceByProduct.get(product.id) || [];
-        const score = this.productScore(product, clean);
-        const stock = rows.length
-          ? rows.reduce((sum: number, row: any) => sum + this.safeNumber(row.quantity), 0)
-          : 0;
-        const firstBalance = rows.find((row: any) => this.safeNumber(row.quantity) > 0) || rows[0] || null;
-        const salePrice = this.safeNumber(
-          firstBalance?.price ?? firstBalance?.salePrice ?? product.salePrice ?? product.price ?? 0,
-        );
-        const costPrice = this.safeNumber(
-          firstBalance?.costPrice ?? product.costPrice ?? 0,
-        );
+    // Agar Prisma contains qisqa query bilan topmasa, oxirgi 1000 mahsulotni olib client-side fuzzy rank qilamiz.
+    if (!rows.length || clean.length <= 3) {
+      const fallbackRows = await prismaAny.product.findMany({
+        where: { companyId },
+        include: {
+          stockItems: {
+            where: { status: 'IN_STOCK' },
+            include: { warehouse: true },
+            take: 20,
+            orderBy: { createdAt: 'asc' },
+          },
+        },
+        take: 1000,
+        orderBy: { updatedAt: 'desc' },
+      }).catch(() => []);
+      const ids = new Set(rows.map((row) => row.id));
+      for (const row of fallbackRows) {
+        if (!ids.has(row.id)) rows.push(row);
+      }
+    }
 
+    return rows
+      .map((product: any) => ({ product, rank: this.productRank(product, clean) }))
+      .filter((row) => row.rank > 0)
+      .sort((a, b) => b.rank - a.rank)
+      .slice(0, 20)
+      .map(({ product }) => {
+        const stockItems = Array.isArray(product.stockItems) ? product.stockItems : [];
+        const firstStock = stockItems[0];
         return {
           id: product.id,
           productId: product.id,
@@ -136,68 +166,15 @@ export class SalesService {
           sku: product.sku || product.model || '',
           model: product.model || product.sku || '',
           barcode: product.barcode || '',
-          category: product.category || '',
-          warehouseName: firstBalance?.warehouse?.name || '',
-          stockItemId: null,
-          stock,
-          salePrice,
-          costPrice,
-          currency: 'USD',
-          _score: score,
+          category: product.category || product.brand || '',
+          warehouseName: firstStock?.warehouse?.name || '',
+          stockItemId: firstStock?.id || null,
+          stock: stockItems.length,
+          salePrice: this.safeNumber(firstStock?.salePrice ?? product.salePrice ?? product.price ?? 0),
+          costPrice: this.safeNumber(firstStock?.costPrice ?? product.costPrice ?? 0),
+          currency: firstStock?.currency || product.currency || 'USD',
         };
-      })
-      .filter((item: any) => item._score > 0)
-      .sort((a: any, b: any) => b._score - a._score || this.safeNumber(b.stock) - this.safeNumber(a.stock) || String(a.name).localeCompare(String(b.name)))
-      .slice(0, 25)
-      .map(({ _score, ...item }: any) => item);
-
-    // Fallback: old stock-item based search if product catalogue did not return anything.
-    if (results.length) return results;
-
-    const rows = await this.prisma.product.findMany({
-      where: {
-        companyId,
-        isActive: true,
-        OR: [
-          { name: { contains: clean, mode: 'insensitive' } },
-          { sku: { contains: clean, mode: 'insensitive' } },
-          { model: { contains: clean, mode: 'insensitive' } },
-          { barcode: { contains: clean, mode: 'insensitive' } },
-          { category: { contains: clean, mode: 'insensitive' } },
-        ],
-      } as any,
-      include: {
-        stockItems: {
-          where: { status: 'IN_STOCK' },
-          include: { warehouse: true },
-          take: 5,
-          orderBy: { createdAt: 'asc' },
-        },
-      } as any,
-      take: 25,
-      orderBy: { updatedAt: 'desc' },
-    } as any);
-
-    return rows.map((product: any) => {
-      const stockItems = Array.isArray(product.stockItems) ? product.stockItems : [];
-      const firstStock = stockItems[0];
-      return {
-        id: product.id,
-        productId: product.id,
-        name: product.name,
-        productName: product.name,
-        sku: product.sku || product.model || '',
-        model: product.model || product.sku || '',
-        barcode: product.barcode || '',
-        category: product.category || '',
-        warehouseName: firstStock?.warehouse?.name || '',
-        stockItemId: firstStock?.id || null,
-        stock: stockItems.length,
-        salePrice: this.safeNumber(firstStock?.salePrice ?? product.salePrice ?? product.price ?? 0),
-        costPrice: this.safeNumber(firstStock?.costPrice ?? product.costPrice ?? 0),
-        currency: firstStock?.currency || product.currency || 'USD',
-      };
-    });
+      });
   }
 
   async scan(companyId: string, code: string) {
