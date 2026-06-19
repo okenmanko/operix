@@ -35,8 +35,8 @@ export default function CustomSelect({
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}
-        className={`flex h-[48px] w-full items-center justify-between rounded-[17px] border bg-[var(--input-bg)] px-4 text-left text-[14px] font-normal text-[var(--text)] shadow-[0_8px_22px_rgba(15,23,42,0.035)] outline-none transition ${
-          open ? "border-[var(--blue)] ring-4 ring-[var(--focus)]" : "border-[var(--input-line)] hover:border-[var(--line)]"
+        className={`flex h-[48px] w-full items-center justify-between rounded-[17px] border border-[var(--border)] bg-[var(--surface)] px-4 text-left text-[14px] font-normal text-[var(--text)] shadow-[var(--shadow-soft)] outline-none transition ${
+          open ? "border-[var(--blue)] ring-4 ring-[var(--focus)]" : "border-[var(--border)] hover:border-[var(--border-strong)]"
         }`}
       >
         <span className="flex min-w-0 items-center gap-3">
@@ -51,7 +51,7 @@ export default function CustomSelect({
       </button>
 
       {open ? (
-        <div className="absolute left-0 right-0 top-[56px] z-[100] max-h-[300px] overflow-auto rounded-[20px] border border-[var(--line)] bg-[var(--card)] p-2 shadow-[0_22px_60px_rgba(15,23,42,0.14)]">
+        <div className="absolute left-0 right-0 top-[56px] z-[100] max-h-[300px] overflow-auto rounded-[20px] border border-[var(--border)] bg-[var(--surface)] p-2 shadow-[0_28px_80px_rgba(15,23,42,0.16)]">
           {options.map((item) => {
             const active = item.value === value;
             return (

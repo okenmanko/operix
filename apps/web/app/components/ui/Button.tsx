@@ -19,18 +19,18 @@ export function PremiumButton({
 }: PremiumButtonProps) {
   const cls =
     variant === "primary"
-      ? "bg-[#315efb] text-white shadow-[0_14px_30px_rgba(49,94,251,0.14)] hover:bg-[#2754de]"
+      ? "qanot-primary text-white"
       : variant === "danger"
-        ? "bg-[#fff5f5] text-[#d92d20] hover:bg-[#fee4e2]"
+        ? "bg-[var(--danger-bg)] text-[var(--danger-text)] shadow-[var(--shadow-soft)] hover:brightness-[0.98]"
         : variant === "ghost"
-          ? "bg-transparent text-[#52637a] hover:bg-[#f5f7fa]"
-          : "bg-[#f5f7fa] text-[#52637a] hover:bg-[#eef3f8] hover:text-[#315efb]";
+          ? "bg-transparent text-[var(--muted)] hover:bg-[var(--soft)] hover:text-[var(--text)]"
+          : "qanot-soft";
 
   return (
     <button
       type={type}
       disabled={disabled}
-      className={`inline-flex h-12 items-center justify-center rounded-[18px] px-5 text-[14px] font-normal transition disabled:cursor-not-allowed disabled:opacity-50 ${cls} ${className}`}
+      className={`inline-flex h-11 items-center justify-center gap-2 rounded-[16px] px-5 text-[13px] font-medium transition duration-150 disabled:cursor-not-allowed disabled:opacity-50 ${cls} ${className}`}
       {...props}
     >
       {children}
