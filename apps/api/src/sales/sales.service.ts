@@ -29,18 +29,6 @@ function saleNumber() {
   return `SALE-${y}${m}${day}-${Date.now()}`;
 }
 
-function norm(value: any) {
-  return String(value || '')
-    .toLowerCase()
-    .replace(/ё/g, 'е')
-    .replace(/[^a-zа-я0-9]+/gi, ' ')
-    .trim();
-}
-
-function compact(value: any) {
-  return norm(value).replace(/\s+/g, '');
-}
-
 @Injectable()
 export class SalesService {
   constructor(private readonly prisma: PrismaService) {}
@@ -50,127 +38,119 @@ export class SalesService {
     return Number.isFinite(n) ? n : 0;
   }
 
-  private productScore(product: any, query: string, terms: string[]) {
-    const hay = [product.name, product.sku, product.model, product.barcode, product.category, product.brand]
-      .map((x) => norm(x))
-      .join(' ');
-    const hayCompact = compact(hay);
-    const q = norm(query);
-    const qCompact = compact(query);
-    let score = 0;
-
-    if (!q) return 0;
-    if (hayCompact === qCompact) score += 1000;
-    if (hayCompact.startsWith(qCompact)) score += 500;
-    if (hayCompact.includes(qCompact)) score += 250;
-
-    for (const term of terms) {
-      const t = norm(term);
-      if (!t) continue;
-      if (hay.includes(t)) score += 60;
-      if (hayCompact.includes(compact(t))) score += 80;
-      if (norm(product.name).includes(t)) score += 60;
-      if (norm(product.sku).includes(t) || norm(product.model).includes(t)) score += 80;
-      if (norm(product.barcode).includes(t)) score += 100;
-    }
-
-    return score;
+  private normalizeSearch(value: any) {
+    return String(value || '')
+      .toLowerCase()
+      .replace(/[^a-zа-яё0-9]+/gi, ' ')
+      .trim();
   }
 
-  private toSuggestion(product: any) {
-    const stockItems = Array.isArray(product.stockItems) ? product.stockItems : [];
-    const firstStock = stockItems[0];
-    const stockCount = stockItems.length;
-    const salePrice = this.safeNumber(firstStock?.salePrice ?? product.salePrice ?? product.price ?? 0);
-    const costPrice = this.safeNumber(firstStock?.costPrice ?? product.costPrice ?? 0);
+  private searchScore(product: any, query: string, terms: string[]) {
+    const haystack = this.normalizeSearch([
+      product.name,
+      product.sku,
+      product.model,
+      product.barcode,
+      product.category,
+      product.brand,
+      product.description,
+    ].join(' '));
 
-    return {
-      id: product.id,
-      productId: product.id,
-      name: product.name,
-      productName: product.name,
-      sku: product.sku || product.model || '',
-      model: product.model || product.sku || '',
-      barcode: product.barcode || '',
-      category: product.category || '',
-      brand: product.brand || '',
-      warehouseName: firstStock?.warehouse?.name || '',
-      stockItemId: firstStock?.id || null,
-      stock: stockCount,
-      salePrice,
-      costPrice,
-      currency: firstStock?.currency || product.currency || 'USD',
-    };
+    let score = 0;
+    if (haystack.includes(query)) score += 80;
+    for (const term of terms) {
+      if (haystack.includes(term)) score += 18;
+      if (this.normalizeSearch(product.name).startsWith(term)) score += 14;
+      if (this.normalizeSearch(product.sku).startsWith(term)) score += 12;
+      if (this.normalizeSearch(product.model).startsWith(term)) score += 12;
+      if (this.normalizeSearch(product.barcode).includes(term)) score += 10;
+    }
+    return score;
   }
 
   async searchProducts(companyId: string, q: string) {
     const clean = String(q || '').trim();
-    if (clean.length < 1) return [];
+    const normalized = this.normalizeSearch(clean);
+    if (!normalized) return [];
 
-    const terms = norm(clean).split(/\s+/).filter(Boolean);
-    const or: any[] = [];
-    const addTerm = (term: string) => {
-      if (!term) return;
-      or.push(
-        { name: { contains: term, mode: 'insensitive' } },
-        { sku: { contains: term, mode: 'insensitive' } },
-        { model: { contains: term, mode: 'insensitive' } },
-        { barcode: { contains: term, mode: 'insensitive' } },
-        { category: { contains: term, mode: 'insensitive' } },
-        { brand: { contains: term, mode: 'insensitive' } },
-      );
-    };
+    const terms = normalized.split(/\s+/).filter(Boolean);
 
-    addTerm(clean);
-    for (const term of terms) addTerm(term);
-
-    let rows = await this.prisma.product.findMany({
+    // MoySklad’dan kelgan productlarda ayrim maydonlar bo‘sh bo‘lishi mumkin.
+    // Shuning uchun DBdan kengroq olamiz, keyin score bilan tartiblaymiz.
+    const rows = await this.prisma.product.findMany({
       where: {
         companyId,
-        OR: or.length ? or : undefined,
+        OR: [
+          { name: { contains: clean, mode: 'insensitive' } },
+          { sku: { contains: clean, mode: 'insensitive' } },
+          { model: { contains: clean, mode: 'insensitive' } },
+          { barcode: { contains: clean, mode: 'insensitive' } },
+          { category: { contains: clean, mode: 'insensitive' } },
+          { brand: { contains: clean, mode: 'insensitive' } },
+          ...terms.flatMap((term) => [
+            { name: { contains: term, mode: 'insensitive' } },
+            { sku: { contains: term, mode: 'insensitive' } },
+            { model: { contains: term, mode: 'insensitive' } },
+            { barcode: { contains: term, mode: 'insensitive' } },
+            { category: { contains: term, mode: 'insensitive' } },
+            { brand: { contains: term, mode: 'insensitive' } },
+          ]),
+        ],
       } as any,
       include: {
         stockItems: {
           where: { status: 'IN_STOCK' },
           include: { warehouse: true },
+          take: 20,
           orderBy: { createdAt: 'asc' },
+        },
+        inventoryBalances: {
+          include: { warehouse: true },
+          take: 10,
         },
       } as any,
       take: 80,
       orderBy: { updatedAt: 'desc' },
     } as any);
 
-    // Agar DBdagi contains biror sabab bilan kam natija bersa, oxirgi fallback:
-    // productlarni ko'proq olib, JS fuzzy orqali saralaymiz.
-    if (rows.length < 5) {
-      const fallback = await this.prisma.product.findMany({
-        where: { companyId } as any,
-        include: {
-          stockItems: {
-            where: { status: 'IN_STOCK' },
-            include: { warehouse: true },
-            orderBy: { createdAt: 'asc' },
-          },
-        } as any,
-        take: 1500,
-        orderBy: { updatedAt: 'desc' },
-      } as any);
-      const map = new Map<string, any>();
-      [...rows, ...fallback].forEach((row) => map.set(row.id, row));
-      rows = [...map.values()];
-    }
-
     return rows
-      .map((product: any) => ({ product, score: this.productScore(product, clean, terms) }))
-      .filter((row) => row.score > 0)
+      .map((product: any) => ({ product, score: this.searchScore(product, normalized, terms) }))
+      .filter((item) => item.score > 0)
       .sort((a, b) => b.score - a.score)
       .slice(0, 20)
-      .map((row) => this.toSuggestion(row.product));
+      .map(({ product }) => {
+        const stockItems = Array.isArray(product.stockItems) ? product.stockItems : [];
+        const balances = Array.isArray(product.inventoryBalances) ? product.inventoryBalances : [];
+        const firstStock = stockItems[0];
+        const firstBalance = balances.find((x: any) => this.safeNumber(x.quantity) > 0) || balances[0];
+        const balanceQty = balances.reduce((sum: number, x: any) => sum + this.safeNumber(x.quantity), 0);
+        const stockQty = stockItems.length || balanceQty || 0;
+        const salePrice = this.safeNumber(firstStock?.salePrice ?? product.salePrice ?? product.price ?? firstBalance?.price ?? 0);
+        const costPrice = this.safeNumber(firstStock?.costPrice ?? product.costPrice ?? 0);
+
+        return {
+          id: product.id,
+          productId: product.id,
+          name: product.name,
+          productName: product.name,
+          sku: product.sku || product.model || '',
+          model: product.model || product.sku || '',
+          barcode: product.barcode || '',
+          category: product.category || '',
+          brand: product.brand || '',
+          warehouseName: firstStock?.warehouse?.name || firstBalance?.warehouse?.name || '',
+          stockItemId: firstStock?.id || null,
+          stock: stockQty,
+          salePrice,
+          costPrice,
+          currency: firstStock?.currency || product.currency || 'USD',
+        };
+      });
   }
 
   async scan(companyId: string, code: string) {
     const clean = String(code || '').trim();
-    if (!clean) throw new BadRequestException('Tovar nomi, model yoki shtrixkod kiriting');
+    if (!clean) throw new BadRequestException('QR kod yoki mahsulot nomini kiriting');
 
     const item = await this.prisma.stockItem.findFirst({
       where: {
@@ -184,23 +164,20 @@ export class SalesService {
       if (item.status !== 'IN_STOCK') {
         throw new BadRequestException(`Bu tovar sotuvga yaroqsiz: ${item.status}`);
       }
+
       return {
         id: item.id,
         stockItemId: item.id,
         qrCode: item.qrCode,
         serialNumber: item.serialNumber,
+        status: item.status,
         productId: item.productId,
         productName: item.product?.name,
-        name: item.product?.name,
-        sku: item.product?.sku || item.product?.model || '',
-        model: item.product?.model || item.product?.sku || '',
-        category: item.product?.category || '',
-        barcode: item.product?.barcode || '',
+        sku: item.product?.sku,
         warehouseId: item.warehouseId,
         warehouseName: item.warehouse?.name,
         stock: 1,
-        salePrice: this.safeNumber(item.salePrice ?? item.product?.salePrice ?? 0),
-        costPrice: this.safeNumber(item.costPrice ?? item.product?.costPrice ?? 0),
+        salePrice: item.salePrice ?? item.product?.salePrice ?? 0,
         currency: item.currency || item.product?.currency || 'USD',
       };
     }
@@ -274,11 +251,15 @@ export class SalesService {
             price,
             total: price,
           });
+
           continue;
         }
 
         if (!row.productId) throw new NotFoundException('Savatdagi mahsulot topilmadi');
-        const product = await tx.product.findFirst({ where: { id: row.productId, companyId } });
+
+        const product = await tx.product.findFirst({
+          where: { id: row.productId, companyId },
+        });
         if (!product) throw new NotFoundException('Mahsulot topilmadi');
 
         const price = this.safeNumber(row.price ?? product.salePrice ?? 0);
@@ -323,10 +304,16 @@ export class SalesService {
           });
         }
 
-        saleItems.push({ productId: product.id, quantity, price, total: price * quantity });
+        saleItems.push({
+          productId: product.id,
+          quantity,
+          price,
+          total: price * quantity,
+        });
       }
 
       const totalAmount = Math.max(subtotal - discount, 0);
+
       const sale = await tx.sale.create({
         data: {
           companyId,
@@ -372,16 +359,21 @@ export class SalesService {
       if (filters.dateTo) where.createdAt.lte = new Date(filters.dateTo);
     }
 
-    return this.prisma.sale.findMany({
+    const rows = await this.prisma.sale.findMany({
       where,
       orderBy: { createdAt: 'desc' },
       include: { items: { include: { product: true } } },
       take: 300,
     });
+
+    return rows;
   }
 
   async getOne(companyId: string, id: string) {
-    const sale = await this.prisma.sale.findFirst({ where: { id, companyId }, include: { items: true } });
+    const sale = await this.prisma.sale.findFirst({
+      where: { id, companyId },
+      include: { items: true },
+    });
     if (!sale) throw new NotFoundException('Sotuv topilmadi');
     return sale;
   }

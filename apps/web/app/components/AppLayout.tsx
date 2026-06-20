@@ -13,16 +13,16 @@ export default function AppLayout({ title, subtitle, children }: { title: string
   return (
     <main className="premium-page min-h-screen text-[var(--text)]">
       <Sidebar />
-      <section className="ml-[220px] min-h-screen px-9 py-8 max-lg:ml-0 max-lg:px-4">
-        <div className="mx-auto max-w-[1520px]">
-          <div className="mb-5 flex justify-end gap-3 no-print">
+      <section className="ml-[220px] min-h-screen px-9 py-7 max-lg:ml-0 max-lg:px-4">
+        <div className="mx-auto max-w-[1500px]">
+          <div className="mb-6 flex justify-end gap-3 no-print">
             <ThemeSwitcher />
             <button onClick={() => { clearAuth(); window.location.href = "/login"; }} className="premium-button premium-button-soft">
               {t("logout")}
             </button>
           </div>
           <PageHeader title={title} subtitle={subtitle} />
-          {children}
+          <div className="mt-7">{children}</div>
         </div>
       </section>
     </main>

@@ -1,136 +1,72 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Banknote, CreditCard, Search, Trash2, Wallet } from "lucide-react";
+import { Banknote, CreditCard, Minus, PackageSearch, Plus, Trash2, Wallet } from "lucide-react";
 import AppLayout from "../components/AppLayout";
+import { apiJson, dateText, money, num } from "../lib/api";
 import CustomSelect from "../components/ui/CustomSelect";
 import { Field, PremiumInput } from "../components/ui/Field";
 import { Toast } from "../components/ui/Toast";
-import { apiJson, dateText, money, num } from "../lib/api";
 
 type ProductSuggestion = {
   id: string;
-  productId: string;
+  productId?: string;
   name: string;
   productName?: string;
   sku?: string | null;
   model?: string | null;
   barcode?: string | null;
   category?: string | null;
-  brand?: string | null;
   warehouseName?: string | null;
   stockItemId?: string | null;
   stock?: number | null;
-  salePrice: number;
-  costPrice?: number | null;
-  currency: string;
-};
-
-type InventoryProduct = {
-  id: string;
-  name: string;
-  sku?: string | null;
-  model?: string | null;
-  barcode?: string | null;
-  category?: string | null;
-  brand?: string | null;
-  stock?: number | null;
   salePrice?: number | null;
-  price?: number | null;
   costPrice?: number | null;
+  price?: number | null;
   currency?: string | null;
-  warehouses?: Array<{ warehouseName?: string; quantity?: number; salePrice?: number; costPrice?: number }>;
 };
 
-type CartItem = ProductSuggestion & { cartId: string; quantity: number };
-
-type Sale = {
-  id: string;
-  saleNumber?: string | null;
-  totalAmount: number;
-  currency: string;
-  method?: string | null;
-  createdAt: string;
-};
+type CartItem = ProductSuggestion & { cartId: string; quantity: number; salePrice: number; currency: string };
+type Sale = { id: string; saleNumber?: string | null; totalAmount: number; currency: string; method?: string | null; createdAt: string };
 
 const methodOptions = [
-  { value: "CASH", label: "Naqd", icon: <Banknote size={17} /> },
-  { value: "CARD", label: "Karta", icon: <CreditCard size={17} /> },
-  { value: "TRANSFER", label: "Bank", icon: <Wallet size={17} /> },
+  { value: "CASH", label: "Naqd", icon: <Banknote size={18} /> },
+  { value: "CARD", label: "Karta", icon: <CreditCard size={18} /> },
+  { value: "TRANSFER", label: "Transfer", icon: <Wallet size={18} /> },
 ];
+const currencyOptions = [{ value: "USD", label: "USD" }, { value: "UZS", label: "UZS" }];
 
-const currencyOptions = [
-  { value: "USD", label: "USD" },
-  { value: "UZS", label: "UZS" },
-];
+function n(value: unknown) { const x = Number(value || 0); return Number.isFinite(x) ? x : 0; }
+function clean(value: unknown) { return String(value || "").trim(); }
+function searchable(value: unknown) { return clean(value).toLowerCase().replace(/[^a-zа-яё0-9]+/gi, " ").trim(); }
+function productKey(p: ProductSuggestion) { return clean(p.stockItemId || p.productId || p.id || p.barcode || p.sku || p.name); }
 
-function clean(value: unknown) {
-  return String(value || "").trim();
-}
-
-function normalize(value: unknown) {
-  return String(value || "")
-    .toLowerCase()
-    .replace(/ё/g, "е")
-    .replace(/[^a-zа-я0-9]+/gi, " ")
-    .trim();
-}
-
-function compact(value: unknown) {
-  return normalize(value).replace(/\s+/g, "");
-}
-
-function scoreProduct(product: ProductSuggestion, query: string) {
-  const q = normalize(query);
-  const qc = compact(query);
+function localSearch(products: ProductSuggestion[], query: string) {
+  const q = searchable(query);
+  if (!q) return [];
   const terms = q.split(/\s+/).filter(Boolean);
-  const text = [product.name, product.productName, product.sku, product.model, product.barcode, product.category, product.brand]
-    .map(normalize)
-    .join(" ");
-  const textCompact = compact(text);
-  let score = 0;
-
-  if (!q) return 0;
-  if (textCompact === qc) score += 1000;
-  if (textCompact.startsWith(qc)) score += 500;
-  if (textCompact.includes(qc)) score += 260;
-
-  for (const term of terms) {
-    const tc = compact(term);
-    if (text.includes(term)) score += 60;
-    if (textCompact.includes(tc)) score += 90;
-    if (normalize(product.name).includes(term)) score += 80;
-    if (normalize(product.sku).includes(term) || normalize(product.model).includes(term)) score += 120;
-    if (normalize(product.barcode).includes(term)) score += 140;
-  }
-
-  return score;
-}
-
-function inventoryToSuggestion(row: InventoryProduct): ProductSuggestion {
-  const warehouse = Array.isArray(row.warehouses) ? row.warehouses.find((x) => Number(x.quantity || 0) > 0) || row.warehouses[0] : undefined;
-  return {
-    id: row.id,
-    productId: row.id,
-    name: row.name,
-    productName: row.name,
-    sku: row.sku || row.model || "",
-    model: row.model || row.sku || "",
-    barcode: row.barcode || "",
-    category: row.category || "",
-    brand: row.brand || "",
-    warehouseName: warehouse?.warehouseName || "",
-    stockItemId: null,
-    stock: Number(row.stock ?? warehouse?.quantity ?? 0),
-    salePrice: Number(warehouse?.salePrice ?? row.salePrice ?? row.price ?? 0),
-    costPrice: Number(warehouse?.costPrice ?? row.costPrice ?? 0),
-    currency: row.currency || "USD",
-  };
+  return products
+    .map((p) => {
+      const haystack = searchable([p.name, p.productName, p.sku, p.model, p.barcode, p.category].join(" "));
+      let score = 0;
+      if (haystack.includes(q)) score += 80;
+      for (const term of terms) {
+        if (haystack.includes(term)) score += 20;
+        if (searchable(p.name).startsWith(term)) score += 15;
+        if (searchable(p.sku).startsWith(term) || searchable(p.model).startsWith(term)) score += 12;
+      }
+      return { p, score };
+    })
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 12)
+    .map((x) => x.p);
 }
 
 export default function SalesPage() {
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState<ProductSuggestion[]>([]);
+  const [allProducts, setAllProducts] = useState<ProductSuggestion[]>([]);
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -141,113 +77,83 @@ export default function SalesPage() {
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [error, setError] = useState("");
-  const [loadingSearch, setLoadingSearch] = useState(false);
+  const [loading, setLoading] = useState(false);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const subtotal = useMemo(
-    () => cart.reduce((sum, item) => sum + Number(item.salePrice || 0) * Number(item.quantity || 1), 0),
-    [cart],
-  );
-  const total = Math.max(subtotal - Number(discount || 0), 0);
+  const subtotal = useMemo(() => cart.reduce((sum, item) => sum + n(item.salePrice) * n(item.quantity || 1), 0), [cart]);
+  const total = Math.max(subtotal - n(discount), 0);
 
   async function loadSales() {
     try {
       const data = await apiJson<any>(`/sales?currency=${currency}`);
-      const rows = Array.isArray(data) ? data : Array.isArray(data?.sales) ? data.sales : [];
-      setSales(rows.slice(0, 8));
-    } catch {
-      setSales([]);
-    }
+      setSales(Array.isArray(data) ? data : Array.isArray(data?.sales) ? data.sales : []);
+    } catch { setSales([]); }
   }
 
-  useEffect(() => {
-    loadSales();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currency]);
-
-  async function searchProducts(raw: string) {
-    const q = raw.trim();
-    if (!q) return [];
-    setLoadingSearch(true);
-
+  async function loadProductsFallback() {
     try {
-      const apiRows = await apiJson<ProductSuggestion[]>(`/sales/search?q=${encodeURIComponent(q)}`);
-      let rows = Array.isArray(apiRows) ? apiRows : [];
-
-      // Qo'shimcha frontend fallback: agar /sales/search bo'sh qaytsa,
-      // inventory katalogdan olib fuzzy qidiradi. Shu sabab "AS", "43", "hof" ham topiladi.
-      if (rows.length < 3) {
-        try {
-          const inv = await apiJson<InventoryProduct[]>("/inventory/products");
-          const extra = (Array.isArray(inv) ? inv : []).map(inventoryToSuggestion);
-          const map = new Map<string, ProductSuggestion>();
-          [...rows, ...extra].forEach((item) => map.set(item.productId || item.id, item));
-          rows = [...map.values()];
-        } catch {
-          // backend search natijasini qoldiramiz
-        }
-      }
-
-      return rows
-        .map((item) => ({ item, score: scoreProduct(item, q) }))
-        .filter((row) => row.score > 0)
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 12)
-        .map((row) => row.item);
-    } finally {
-      setLoadingSearch(false);
-    }
+      const data = await apiJson<any[]>("/inventory/products");
+      const rows = Array.isArray(data) ? data : [];
+      setAllProducts(rows.map((p: any) => ({
+        id: p.id,
+        productId: p.productId || p.id,
+        name: p.name || p.productName || "Tovar",
+        productName: p.productName || p.name,
+        sku: p.sku || p.model || "",
+        model: p.model || p.sku || "",
+        barcode: p.barcode || "",
+        category: p.category || "",
+        stock: n(p.stock ?? p.quantity ?? 0),
+        salePrice: n(p.salePrice ?? p.price ?? 0),
+        costPrice: n(p.costPrice ?? 0),
+        currency: p.currency || "USD",
+      })));
+    } catch { setAllProducts([]); }
   }
+
+  useEffect(() => { loadProductsFallback(); }, []);
+  useEffect(() => { loadSales(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [currency]);
 
   useEffect(() => {
     const q = query.trim();
     if (searchTimer.current) clearTimeout(searchTimer.current);
-
-    if (!q) {
-      setSuggestions([]);
-      setSuggestOpen(false);
-      setLoadingSearch(false);
-      return;
-    }
+    if (!q) { setSuggestions([]); setSuggestOpen(false); return; }
 
     searchTimer.current = setTimeout(async () => {
+      setLoading(true);
       try {
-        const rows = await searchProducts(q);
-        setSuggestions(rows);
+        let rows: ProductSuggestion[] = [];
+        try {
+          const data = await apiJson<ProductSuggestion[]>(`/sales/search?q=${encodeURIComponent(q)}`);
+          rows = Array.isArray(data) ? data : [];
+        } catch { rows = []; }
+        const fallback = localSearch(allProducts, q);
+        const merged = [...rows, ...fallback].filter(Boolean);
+        const unique = Array.from(new Map(merged.map((p) => [productKey(p), p])).values()).slice(0, 12);
+        setSuggestions(unique);
         setSelectedIndex(0);
         setSuggestOpen(true);
-      } catch {
-        setSuggestions([]);
-        setSuggestOpen(true);
-      }
-    }, 140);
+      } finally { setLoading(false); }
+    }, 120);
 
-    return () => {
-      if (searchTimer.current) clearTimeout(searchTimer.current);
-    };
-  }, [query]);
+    return () => { if (searchTimer.current) clearTimeout(searchTimer.current); };
+  }, [query, allProducts]);
 
   function addProduct(product: ProductSuggestion) {
+    if (!product) return;
     setError("");
+    const key = productKey(product);
     setCart((current) => {
-      const key = product.stockItemId || product.productId || product.id;
-      const exists = current.find((item) => (item.stockItemId || item.productId || item.id) === key);
-      if (exists) {
-        return current.map((item) =>
-          (item.stockItemId || item.productId || item.id) === key ? { ...item, quantity: item.quantity + 1 } : item,
-        );
-      }
-      return [
-        ...current,
-        {
-          ...product,
-          productId: product.productId || product.id,
-          cartId: `${key}-${Date.now()}`,
-          quantity: 1,
-          currency: product.currency || currency,
-          salePrice: Number(product.salePrice || 0),
-        },
-      ];
+      const exists = current.find((item) => productKey(item) === key);
+      if (exists) return current.map((item) => productKey(item) === key ? { ...item, quantity: item.quantity + 1 } : item);
+      return [...current, {
+        ...product,
+        productId: product.productId || product.id,
+        cartId: `${key}-${Date.now()}`,
+        quantity: 1,
+        currency: product.currency || currency,
+        salePrice: n(product.salePrice ?? product.price),
+      }];
     });
     setQuery("");
     setSuggestions([]);
@@ -257,33 +163,19 @@ export default function SalesPage() {
   async function addFirst() {
     const q = query.trim();
     if (!q) return;
-    if (suggestions.length) {
-      addProduct(suggestions[selectedIndex] || suggestions[0]);
-      return;
-    }
-
+    if (suggestions.length) return addProduct(suggestions[selectedIndex] || suggestions[0]);
     try {
-      setError("");
-      const rows = await searchProducts(q);
-      if (rows.length) {
-        addProduct(rows[0]);
-        return;
-      }
-      const item = await apiJson<ProductSuggestion>("/sales/scan", {
-        method: "POST",
-        body: JSON.stringify({ code: q }),
-      });
+      const item = await apiJson<ProductSuggestion>("/sales/scan", { method: "POST", body: JSON.stringify({ code: q }) });
       addProduct(item);
     } catch {
-      setError("Mahsulot topilmadi. Nomi, modeli, SKU yoki shtrixkodini boshqacha yozing.");
-      setSuggestOpen(true);
+      const fallback = localSearch(allProducts, q)[0];
+      if (fallback) addProduct(fallback);
+      else setError("Mahsulot topilmadi. Nomi, modeli, SKU yoki shtrixkodini yozing.");
     }
   }
 
   function changeQty(cartId: string, delta: number) {
-    setCart((current) =>
-      current.map((item) => (item.cartId === cartId ? { ...item, quantity: Math.max(1, item.quantity + delta) } : item)),
-    );
+    setCart((current) => current.map((item) => item.cartId === cartId ? { ...item, quantity: Math.max(1, item.quantity + delta) } : item));
   }
 
   async function checkout() {
@@ -293,163 +185,100 @@ export default function SalesPage() {
       await apiJson("/sales/checkout", {
         method: "POST",
         body: JSON.stringify({
-          method,
-          currency,
-          discount: Number(discount || 0),
-          customerName,
-          customerPhone,
-          items: cart.map((item) => ({
-            stockItemId: item.stockItemId || undefined,
-            productId: item.productId || item.id,
-            price: Number(item.salePrice || 0),
-            quantity: Number(item.quantity || 1),
-          })),
+          method, currency, discount: n(discount), customerName, customerPhone,
+          items: cart.map((item) => ({ stockItemId: item.stockItemId || undefined, productId: item.productId || item.id, price: n(item.salePrice), quantity: n(item.quantity || 1) })),
         }),
       });
-      setCart([]);
-      setDiscount("0");
-      setCustomerName("");
-      setCustomerPhone("");
-      await loadSales();
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Sotuv yakunlanmadi");
-    }
+      setCart([]); setDiscount("0"); setCustomerName(""); setCustomerPhone(""); await loadSales(); await loadProductsFallback();
+    } catch (err: unknown) { setError(err instanceof Error ? err.message : "Sotuv yakunlanmadi"); }
   }
 
   return (
     <AppLayout title="Sotuv" subtitle="Mahsulot nomi, modeli, SKU, turi yoki shtrixkod orqali tez sotuv.">
       {error ? <Toast type="error">{error}</Toast> : null}
 
-      <div className="grid grid-cols-[1.45fr_0.55fr] gap-5 max-xl:grid-cols-1">
+      <div className="pos-grid">
         <div className="premium-card p-6">
           <div className="flex items-start justify-between gap-4 max-md:flex-col">
             <div>
-              <h2 className="text-[24px] font-normal tracking-[-0.04em] text-[var(--text)]">Mahsulot tanlash</h2>
+              <h2 className="text-[25px] font-extrabold tracking-[-0.055em] text-[var(--text)]">Mahsulot tanlash</h2>
               <p className="mt-1 text-[13px] text-[var(--muted)]">Masalan: <b>LG 43</b>, <b>AS-1500</b>, <b>hof</b>, <b>kir</b>, <b>kond</b>, shtrixkod.</p>
             </div>
-            <div className="rounded-[18px] bg-[var(--soft)] px-4 py-3 text-right">
+            <div className="rounded-[20px] bg-[var(--soft)] px-5 py-3 text-right">
               <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--muted)]">Jami</p>
-              <p className="mt-1 text-[24px] tracking-[-0.04em] text-[var(--text)]">{money(total, currency)}</p>
+              <p className="mt-1 text-[28px] font-extrabold tracking-[-0.055em] text-[var(--text)]">{money(total, currency)}</p>
             </div>
           </div>
 
           <div className="relative mt-5 flex gap-3 max-md:flex-col">
             <div className="relative flex-1">
-              <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[var(--muted)]" size={18} />
+              <PackageSearch className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[var(--muted)]" size={19} />
               <input
                 value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                onFocus={() => query.trim() && setSuggestOpen(true)}
-                onKeyDown={(event) => {
-                  if (event.key === "ArrowDown") {
-                    event.preventDefault();
-                    setSelectedIndex((current) => Math.min(current + 1, Math.max(0, suggestions.length - 1)));
-                  }
-                  if (event.key === "ArrowUp") {
-                    event.preventDefault();
-                    setSelectedIndex((current) => Math.max(current - 1, 0));
-                  }
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    addFirst();
-                  }
-                  if (event.key === "Escape") setSuggestOpen(false);
+                onChange={(e) => setQuery(e.target.value)}
+                onFocus={() => query && setSuggestOpen(true)}
+                onKeyDown={(e) => {
+                  if (e.key === "ArrowDown") { e.preventDefault(); setSelectedIndex((v) => Math.min(v + 1, suggestions.length - 1)); }
+                  if (e.key === "ArrowUp") { e.preventDefault(); setSelectedIndex((v) => Math.max(v - 1, 0)); }
+                  if (e.key === "Enter") { e.preventDefault(); addFirst(); }
+                  if (e.key === "Escape") setSuggestOpen(false);
                 }}
-                placeholder="Tovar qidirish: nom, model, SKU, kategoriya..."
-                className="premium-input pl-12"
+                placeholder="Tovar qidirish: nom, model, SKU, kategoriya, shtrixkod..."
+                className="premium-input h-[54px] pl-12 text-[15px]"
+                autoComplete="off"
               />
-
-              {suggestOpen && query.trim() ? (
-                <div className="absolute left-0 right-0 z-30 mt-2 overflow-hidden rounded-[22px] border border-[var(--border)] bg-[var(--surface)] shadow-[0_24px_70px_rgba(15,23,42,0.14)]">
-                  {loadingSearch ? (
-                    <div className="p-5 text-center text-[13px] text-[var(--muted)]">Qidirilmoqda...</div>
-                  ) : suggestions.length ? (
-                    <div className="max-h-[420px] overflow-auto p-2">
-                      {suggestions.map((product, index) => (
-                        <button
-                          key={`${product.productId || product.id}-${index}`}
-                          type="button"
-                          onMouseDown={(event) => event.preventDefault()}
-                          onClick={() => addProduct(product)}
-                          className={`grid w-full grid-cols-[1fr_110px_110px] items-center gap-4 rounded-[16px] px-4 py-3 text-left transition max-md:grid-cols-1 ${index === selectedIndex ? "bg-[var(--blue-soft)]" : "hover:bg-[var(--hover)]"}`}
-                        >
+              {suggestOpen && query ? (
+                <div className="absolute left-0 right-0 z-40 mt-2 overflow-hidden rounded-[24px] border border-[var(--line)] bg-[var(--card)] shadow-[0_24px_70px_rgba(15,23,42,0.16)]">
+                  {loading ? <div className="p-6 text-center text-[var(--muted)]">Qidirilyapti...</div> : null}
+                  {!loading && suggestions.length ? (
+                    <div className="max-h-[420px] overflow-auto p-2 qanot-scroll">
+                      {suggestions.map((p, index) => (
+                        <button key={`${productKey(p)}-${index}`} type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => addProduct(p)} className={`pos-suggestion ${index === selectedIndex ? "pos-suggestion-active" : ""}`}>
                           <div className="min-w-0">
-                            <p className="line-clamp-1 text-[15px] font-semibold text-[var(--text)]">{product.name || product.productName}</p>
-                            <p className="mt-1 line-clamp-1 text-[12px] text-[var(--muted)]">
-                              {clean(product.sku || product.model) || "model yo‘q"} · {clean(product.category) || "kategoriya yo‘q"} · {clean(product.barcode) || "shtrixkod yo‘q"}
-                            </p>
+                            <p className="truncate text-[15px] font-extrabold tracking-[-0.02em]">{p.name || p.productName}</p>
+                            <p className="mt-1 truncate text-[12px] text-[var(--muted)]">{clean(p.sku || p.model) || "model yo‘q"} · {clean(p.category) || "kategoriya yo‘q"} · {clean(p.barcode) || "shtrixkod yo‘q"}</p>
                           </div>
-                          <div className="text-right max-md:text-left">
-                            <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--muted)]">Qoldiq</p>
-                            <p className="text-[14px] font-medium text-[var(--text)]">{num(product.stock || 0)} dona</p>
-                          </div>
-                          <div className="text-right max-md:text-left">
-                            <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--muted)]">Narx</p>
-                            <p className="text-[14px] font-semibold text-[var(--text)]">{money(product.salePrice || 0, product.currency || currency)}</p>
+                          <div className="shrink-0 text-right">
+                            <p className="text-[14px] font-extrabold">{money(n(p.salePrice ?? p.price), p.currency || currency)}</p>
+                            <p className="mt-1 text-[12px] text-[var(--muted)]">{num(p.stock || 0)} dona</p>
                           </div>
                         </button>
                       ))}
                     </div>
-                  ) : (
-                    <div className="p-5 text-center text-[13px] text-[var(--muted)]">Mahsulot topilmadi. Masalan: LG, 43, hof, kir, model yoki shtrixkod yozing.</div>
-                  )}
+                  ) : null}
+                  {!loading && !suggestions.length ? <div className="p-6 text-center text-[var(--muted)]">Mahsulot topilmadi. Boshqacha yozib ko‘ring.</div> : null}
                 </div>
               ) : null}
             </div>
-
-            <button type="button" onClick={addFirst} className="premium-button premium-button-primary h-12 px-6">
-              Qo‘shish
-            </button>
+            <button type="button" onClick={addFirst} className="premium-button premium-button-primary h-[54px] px-7">Qo‘shish</button>
           </div>
 
-          <div className="mt-5 overflow-hidden rounded-[24px] border border-[var(--border)] bg-[var(--card)]">
-            <table className="w-full text-left text-[14px]">
-              <thead className="bg-[var(--soft)] text-[11px] uppercase tracking-[0.12em] text-[var(--muted)]">
-                <tr>
-                  <th className="p-4 font-normal">Mahsulot</th>
-                  <th className="p-4 font-normal">Model / SKU</th>
-                  <th className="p-4 text-center font-normal">Soni</th>
-                  <th className="p-4 text-right font-normal">Narx</th>
-                  <th className="p-4 text-right font-normal">Summa</th>
-                  <th className="p-4 text-right font-normal">Amal</th>
-                </tr>
-              </thead>
-              <tbody>
-                {cart.map((item) => (
-                  <tr key={item.cartId} className="border-t border-[var(--border)]">
-                    <td className="p-4">
-                      <p className="line-clamp-1 font-medium text-[var(--text)]">{item.name || item.productName}</p>
-                      <p className="mt-1 text-[12px] text-[var(--muted)]">{item.category || item.barcode || "—"}</p>
-                    </td>
-                    <td className="p-4 text-[var(--muted)]">{item.sku || item.model || "—"}</td>
-                    <td className="p-4">
-                      <div className="mx-auto flex w-[110px] items-center justify-between rounded-[16px] bg-[var(--soft)] px-2 py-1">
-                        <button type="button" onClick={() => changeQty(item.cartId, -1)} className="h-8 w-8 rounded-[12px] hover:bg-[var(--card)]">−</button>
-                        <span className="text-[14px] text-[var(--text)]">{item.quantity}</span>
-                        <button type="button" onClick={() => changeQty(item.cartId, 1)} className="h-8 w-8 rounded-[12px] hover:bg-[var(--card)]">+</button>
-                      </div>
-                    </td>
-                    <td className="p-4 text-right text-[var(--text)]">{money(item.salePrice, item.currency || currency)}</td>
-                    <td className="p-4 text-right font-medium text-[var(--text)]">{money(item.salePrice * item.quantity, item.currency || currency)}</td>
-                    <td className="p-4 text-right">
-                      <button type="button" onClick={() => setCart((current) => current.filter((x) => x.cartId !== item.cartId))} className="inline-flex h-10 w-10 items-center justify-center rounded-[14px] bg-[var(--soft)] text-[var(--muted)] hover:text-red-500">
-                        <Trash2 size={17} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-                {!cart.length ? (
-                  <tr>
-                    <td colSpan={6} className="p-10 text-center text-[var(--muted)]">Savatcha bo‘sh. Avval mahsulot qidiring va tanlang.</td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
+          <div className="mt-6 rounded-[24px] border border-[var(--line)] bg-[var(--card)] p-5">
+            <div className="pos-cart-row pos-cart-head border-0 pt-0">
+              <span>Mahsulot</span><span>Soni</span><span>Narx</span><span className="text-right">Summa</span><span></span>
+            </div>
+            {cart.map((item) => (
+              <div key={item.cartId} className="pos-cart-row">
+                <div className="min-w-0">
+                  <p className="truncate text-[15px] font-extrabold text-[var(--text)]">{item.name || item.productName}</p>
+                  <p className="mt-1 truncate text-[12px] text-[var(--muted)]">{item.sku || item.model || "—"} · {item.category || "—"}</p>
+                </div>
+                <div className="flex w-[118px] items-center justify-between rounded-[16px] bg-[var(--soft)] px-2 py-1">
+                  <button type="button" onClick={() => changeQty(item.cartId, -1)} className="h-8 w-8 rounded-[12px] hover:bg-[var(--card)]"><Minus size={14} className="mx-auto" /></button>
+                  <span className="text-[14px] font-bold">{item.quantity}</span>
+                  <button type="button" onClick={() => changeQty(item.cartId, 1)} className="h-8 w-8 rounded-[12px] hover:bg-[var(--card)]"><Plus size={14} className="mx-auto" /></button>
+                </div>
+                <div className="font-semibold">{money(item.salePrice, item.currency)}</div>
+                <div className="text-right font-extrabold">{money(item.salePrice * item.quantity, item.currency)}</div>
+                <button type="button" onClick={() => setCart((current) => current.filter((x) => x.cartId !== item.cartId))} className="inline-flex h-10 w-10 items-center justify-center rounded-[14px] bg-[var(--soft)] text-[var(--muted)] hover:text-red-500"><Trash2 size={17} /></button>
+              </div>
+            ))}
+            {!cart.length ? <div className="py-12 text-center text-[var(--muted)]">Savatcha bo‘sh. Avval mahsulot qidiring va tanlang.</div> : null}
           </div>
         </div>
 
-        <div className="premium-card p-6">
-          <h2 className="text-[24px] font-normal tracking-[-0.04em] text-[var(--text)]">Checkout</h2>
+        <div className="premium-card pos-search-panel p-6">
+          <h2 className="text-[25px] font-extrabold tracking-[-0.055em]">Checkout</h2>
           <div className="mt-5 space-y-4">
             <Field label="Valyuta"><CustomSelect value={currency} onChange={setCurrency} options={currencyOptions} /></Field>
             <Field label="To‘lov turi"><CustomSelect value={method} onChange={setMethod} options={methodOptions} /></Field>
@@ -459,23 +288,23 @@ export default function SalesPage() {
           </div>
           <div className="mt-6 rounded-[22px] bg-[var(--soft)] p-5">
             <div className="flex justify-between text-[14px] text-[var(--muted)]"><span>Subtotal</span><span>{money(subtotal, currency)}</span></div>
-            <div className="mt-3 flex justify-between text-[26px] font-normal tracking-[-0.04em] text-[var(--text)]"><span>Total</span><span>{money(total, currency)}</span></div>
+            <div className="mt-3 flex justify-between text-[28px] font-extrabold tracking-[-0.055em]"><span>Total</span><span>{money(total, currency)}</span></div>
           </div>
           <button onClick={checkout} className="premium-button premium-button-primary mt-5 w-full">Sotuvni yakunlash</button>
         </div>
       </div>
 
       <div className="premium-card mt-5 p-6">
-        <h2 className="text-[22px] font-normal tracking-[-0.04em] text-[var(--text)]">Oxirgi sotuvlar</h2>
-        <div className="mt-5 overflow-hidden rounded-[22px] border border-[var(--border)]">
-          <table className="w-full text-left text-[14px]">
+        <h2 className="text-[22px] font-extrabold tracking-[-0.04em]">Oxirgi sotuvlar</h2>
+        <div className="mt-5 table-wrap">
+          <table className="premium-table">
             <tbody>
-              {sales.map((sale) => (
-                <tr key={sale.id} className="border-t border-[var(--border)]">
-                  <td className="p-4">{sale.saleNumber || sale.id.slice(0, 8)}</td>
-                  <td className="p-4 text-[var(--muted)]">{dateText(sale.createdAt)}</td>
-                  <td className="p-4 text-[var(--muted)]">{sale.method || "—"}</td>
-                  <td className="p-4 text-right">{money(sale.totalAmount, sale.currency)}</td>
+              {sales.slice(0, 12).map((sale) => (
+                <tr key={sale.id}>
+                  <td>{sale.saleNumber || sale.id.slice(0, 8)}</td>
+                  <td className="muted">{dateText(sale.createdAt)}</td>
+                  <td className="muted">{sale.method || "—"}</td>
+                  <td className="cell-num font-bold">{money(sale.totalAmount, sale.currency)}</td>
                 </tr>
               ))}
               {!sales.length ? <tr><td colSpan={4} className="p-8 text-center text-[var(--muted)]">Sotuvlar yo‘q</td></tr> : null}
